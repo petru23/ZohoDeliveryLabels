@@ -54,6 +54,14 @@ Each label requires:
 
 **API Field Name:** `cf_delivery_notes`
 
+**Important:** The delivery notes should inherit/populate data from the customer's **Shipping Address**:
+- Include specific instructions related to the shipping address (e.g., "Not at reception desk, use side entrance")
+- Include access codes for the delivery location
+- Add special handling instructions for items being shipped to that address
+- Reference the shipping address details when entering notes (e.g., "Building 3, Unit 5 - Ring buzzer twice")
+
+This ensures labels contain complete delivery information tied directly to the shipping address.
+
 ---
 
 ## 📍 Step 2: Address Field Verification
@@ -77,6 +85,11 @@ Zoho Books invoices have TWO address types:
 
 2. **Template for new customers:**
    Make shipping address REQUIRED in your customer creation form
+
+3. **Delivery Notes must reference this shipping address:**
+   - When creating invoices, ensure delivery notes contain location-specific instructions
+   - Examples: "Unit 5, Building A", "Back entrance", "Loading dock area", access codes, etc.
+   - This ensures the label has complete, actionable delivery information
 
 ---
 
@@ -130,7 +143,7 @@ Create a test invoice with:
 - [ ] Phone number in shipping address
 - [ ] Delivery Date = tomorrow
 - [ ] 2-3 line items with products
-- [ ] Delivery Notes field filled (e.g., "Ring doorbell twice, fragile")
+- [ ] **Delivery Notes field filled and referencing the shipping address** (e.g., "Apt 42 Building C - Ring doorbell twice, fragile, use service entrance")
 - [ ] Invoice status = "Sent" (or whatever status you use for ready-to-deliver)
 
 **Save the invoice**
