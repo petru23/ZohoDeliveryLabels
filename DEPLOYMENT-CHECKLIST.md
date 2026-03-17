@@ -47,7 +47,7 @@
 ### Option A: Local Server (Warehouse PC)
 
 - [ ] Install PM2: `npm install -g pm2`
-- [ ] Start service: `pm2 start server.js --name delivery-labels`
+- [ ] Start service: `pm2 start server.js --name ZohoDeliveryLabels`
 - [ ] Save process: `pm2 save`
 - [ ] Enable startup: `pm2 startup` (run command it provides)
 - [ ] Test reboot: Restart PC, verify auto-starts

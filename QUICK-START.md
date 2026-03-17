@@ -64,8 +64,8 @@ Should show: `v18.x.x` or higher ✓
 
 ```bash
 # Create a folder
-mkdir delivery-labels
-cd delivery-labels
+mkdir ZohoDeliveryLabels
+cd ZohoDeliveryLabels
 
 # Copy all the files I provided into this folder
 ```
@@ -214,7 +214,7 @@ Then access: http://localhost:3001
 **Install PM2:**
 ```bash
 npm install -g pm2
-pm2 start server.js --name delivery-labels
+pm2 start server.js --name ZohoDeliveryLabels
 pm2 save
 pm2 startup
 ```

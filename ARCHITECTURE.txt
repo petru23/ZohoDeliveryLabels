@@ -255,7 +255,7 @@ Production Setup (Recommended):
 │  │  └─> SSL certificate (HTTPS)                                      ││
 │  └────────────────────────────────────────────────────────────────────┘│
 │                                                                          │
-│  Access: https://delivery-labels.yourdomain.com                         │
+│  Access: https://ZohoDeliveryLabels.yourdomain.com                      │
 │  Cost: $5-12/month                                                      │
 └─────────────────────────────────────────────────────────────────────────┘
 

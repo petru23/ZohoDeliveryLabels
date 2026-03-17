@@ -16,7 +16,7 @@ Automated system to generate print-ready delivery labels from Zoho Books invoice
 ### 1. Install Dependencies
 
 ```bash
-cd delivery-labels
+cd ZohoDeliveryLabels
 npm install
 ```
 
@@ -188,7 +188,7 @@ params: {
 ```bash
 # Install as Windows service (using pm2)
 npm install -g pm2
-pm2 start server.js --name delivery-labels
+pm2 start server.js --name ZohoDeliveryLabels
 pm2 save
 pm2 startup
 ```

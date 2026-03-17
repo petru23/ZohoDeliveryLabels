@@ -19,7 +19,7 @@ A production-ready Node.js application that:
 ## 📁 Project Structure
 
 ```
-delivery-labels/
+ZohoDeliveryLabels/
 ├── server.js                    # Main application (Zoho integration + Excel generation)
 ├── package.json                 # Dependencies and scripts
 ├── .env.example                 # Configuration template
@@ -57,7 +57,7 @@ npm start                  # Start server → http://localhost:3000
 
 # Production deployment
 npm install -g pm2
-pm2 start server.js --name delivery-labels
+pm2 start server.js --name ZohoDeliveryLabels
 pm2 save
 pm2 startup
 ```
@@ -190,7 +190,7 @@ this.labelHeightPoints = 108;   // Row height in points
 **Setup:**
 ```bash
 npm install -g pm2
-pm2 start server.js --name delivery-labels
+pm2 start server.js --name ZohoDeliveryLabels
 pm2 save
 pm2 startup
 ```

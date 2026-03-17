@@ -6,14 +6,14 @@
 
 ```bash
 # Initialize git (if not done)
-cd delivery-labels
+cd ZohoDeliveryLabels
 git init
 git add .
-git commit -m "Initial commit - Delivery label system"
+git commit -m "Initial commit - ZohoDeliveryLabels"
 
 # Create GitHub repo and push
 # (Use GitHub Desktop or command line)
-git remote add origin https://github.com/YOUR-USERNAME/delivery-labels.git
+git remote add origin https://github.com/YOUR-USERNAME/ZohoDeliveryLabels.git
 git push -u origin main
 ```
 
@@ -24,7 +24,7 @@ git push -u origin main
 1. Go to: **https://vercel.com**
 2. Sign up with GitHub
 3. Click **"Add New Project"**
-4. Import your `delivery-labels` repository
+4. Import your `ZohoDeliveryLabels` repository
 5. Click **"Import"**
 
 ---
@@ -53,7 +53,7 @@ In Vercel dashboard:
 2. Wait 1-2 minutes
 3. Done! ✅
 
-**Your URL:** `https://delivery-labels-xyz.vercel.app`
+**Your URL:** `https://ZohoDeliveryLabels-xyz.vercel.app`
 
 ---
 
@@ -222,7 +222,7 @@ Before deploying:
 
 **Warehouse access:**
 ```
-https://delivery-labels-xyz.vercel.app
+https://ZohoDeliveryLabels-xyz.vercel.app
 ```
 
 **Mobile-friendly** - works on phones/tablets
