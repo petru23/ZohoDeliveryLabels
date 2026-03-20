@@ -106,7 +106,26 @@ class TokenManager {
     }
   }
 
-  getAccessToken() {
+  // Check if token needs refresh (called before each API request)
+  async ensureValidToken() {
+    const now = Date.now();
+    const timeUntilExpiry = this.tokenExpiresAt - now;
+    
+    // If token expires in less than 5 minutes, refresh now
+    const REFRESH_THRESHOLD = 5 * 60 * 1000; // 5 minutes
+    
+    if (this.tokenExpiresAt && timeUntilExpiry < REFRESH_THRESHOLD) {
+      console.log(`⏰ Token expiring soon (${Math.round(timeUntilExpiry / 1000)}s left). Refreshing...`);
+      await this.refreshAccessToken();
+    }
+  }
+
+  async getAccessToken() {
+    // For Vercel: Check and refresh token on every request
+    // (since background intervals don't work reliably in serverless)
+    if (process.env.VERCEL) {
+      await this.ensureValidToken();
+    }
     return this.accessToken;
   }
 }
@@ -124,10 +143,11 @@ class ZohoBooksAPI {
     this.baseUrl = 'https://www.zohoapis.com.au/billing/v1';
   }
 
-  // Get current access token from token manager
-  getHeaders() {
+  // Get current access token from token manager (async for Vercel auto-refresh)
+  async getHeaders() {
+    const token = await tokenManager.getAccessToken();
     return {
-      'Authorization': `Zoho-oauthtoken ${tokenManager.getAccessToken()}`
+      'Authorization': `Zoho-oauthtoken ${token}`
     };
   }
 
@@ -136,30 +156,53 @@ class ZohoBooksAPI {
     try {
       const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd');
       
-      // Zoho Billing API call - get invoices for tomorrow's delivery
+      // Zoho Billing API call - get all invoices with custom fields (sorted by date)
       const response = await axios.get(`${this.baseUrl}/invoices`, {
-        headers: this.getHeaders(),
+        headers: await this.getHeaders(),
         params: {
           organization_id: this.organizationId,
-          // Filter by custom field "delivery_date" = tomorrow
-          // Adjust this filter based on your Zoho Books setup
-          cf_delivery_date: tomorrow,
-          status: 'sent', // or 'unpaid' - depends on your workflow
-          sort_column: 'customer_name',
-          sort_order: 'A'
+          sort_column: 'date',      // IMPORTANT: Sorting by date ensures custom fields are returned
+          sort_order: 'D',            // Descending order (most recent first)
+          page: 1,
+          per_page: 100
         }
       });
 
-      // Filter to include ONLY deliveries (exclude pickups)
-      // Note: Adjust the field value to match your Zoho setup (e.g., "Delivery", "delivery", "D")
+      // Filter client-side for tomorrow's deliveries
       const deliveries = (response.data.invoices || []).filter(invoice => {
-        const deliveryType = invoice.cf_delivery_pick_up || '';
-        // Only include if cf_delivery_pick_up indicates delivery (not pickup)
-        return deliveryType.toLowerCase().includes('delivery') || 
-               deliveryType === 'D' || 
-               deliveryType === 'Delivery';
+        // Check if this invoice has a delivery date
+        if (!invoice.cf_delivery_date && !invoice.cf_delivery_date_unformatted) {
+          return false;
+        }
+
+        // Parse the delivery date (could be formatted as "20/03/2026" or "2026-03-20")
+        let deliveryDate = null;
+        const dateStr = invoice.cf_delivery_date_unformatted || invoice.cf_delivery_date;
+        
+        if (dateStr) {
+          // Try to parse both formats
+          if (dateStr.includes('-')) {
+            // ISO format: YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss
+            deliveryDate = dateStr.split('T')[0];
+          } else if (dateStr.includes('/')) {
+            // DD/MM/YYYY format - convert to YYYY-MM-DD
+            const [day, month, year] = dateStr.split('/');
+            deliveryDate = `${year}-${month}-${day}`;
+          }
+        }
+
+        if (deliveryDate !== tomorrow) {
+          return false;
+        }
+
+        // Filter to include ONLY deliveries (exclude pickups)
+        const deliveryType = (invoice.cf_delivery_pick_up || '').toLowerCase();
+        const isDelivery = deliveryType.includes('delivery') || deliveryType === 'd';
+        
+        return isDelivery;
       });
 
+      console.log(`✓ Found ${deliveries.length} deliveries for tomorrow (${tomorrow})`);
       return deliveries;
     } catch (error) {
       console.error('Zoho API Error:', error.response?.data || error.message);
@@ -171,7 +214,7 @@ class ZohoBooksAPI {
   async getInvoiceDetails(invoiceId) {
     try {
       const response = await axios.get(`${this.baseUrl}/invoices/${invoiceId}`, {
-        headers: this.getHeaders(),
+        headers: await this.getHeaders(),
         params: {
           organization_id: this.organizationId
         }
@@ -263,32 +306,49 @@ class DeliveryLabelGenerator {
   }
 
   createLabel(worksheet, delivery, startRow, startCol) {
-    // Extract address components
+    // Extract customer and address info
     const customerName = delivery.customer_name || 'CUSTOMER NAME MISSING';
-    const street = delivery.shipping_address?.street || delivery.billing_address?.street || '';
-    const city = delivery.shipping_address?.city || delivery.billing_address?.city || '';
-    const state = delivery.shipping_address?.state || delivery.billing_address?.state || '';
-    const zip = delivery.shipping_address?.zip || delivery.billing_address?.zip || '';
-    const phone = delivery.shipping_address?.phone || delivery.customer?.phone || '';
     
-    // Extract items to deliver
-    const lineItems = delivery.line_items || [];
-    const itemsList = lineItems
-      .map(item => `• ${item.name} (Qty: ${item.quantity})`)
+    // Address: Try shipping first, then billing full address
+    let street = delivery.shipping_address?.street || delivery.billing_address?.street || '';
+    let city = delivery.shipping_address?.city || delivery.billing_address?.city || '';
+    let state = delivery.shipping_address?.state || delivery.billing_address?.state || '';
+    let zip = delivery.shipping_address?.zip || delivery.billing_address?.zip || '';
+    
+    // If no structured address, use the "attention" field (single line address)
+    if (!street && !city && delivery.billing_address?.attention) {
+      const attention = delivery.billing_address.attention;
+      // Try to split attention field: "number street, suburb/state"
+      street = attention;
+    }
+    
+    // Phone: Try multiple sources
+    let phone = delivery.shipping_address?.phone || 
+                delivery.billing_address?.phone || 
+                (delivery.contactpersons?.[0]?.mobile) ||
+                (delivery.contactpersons?.[0]?.phone) ||
+                (delivery.contact_persons_associated?.[0]?.mobile) ||
+                '';
+    
+    // Extract items to deliver from invoice_items (not line_items)
+    const invoiceItems = delivery.invoice_items || [];
+    const itemsList = invoiceItems
+      .map(item => {
+        const desc = item.description || item.name || 'Item';
+        const qty = item.quantity || 1;
+        return `• ${desc.split('\n')[0]} (Qty: ${qty})`;
+      })
       .join('\n');
     
-    // Extract notes (could be in multiple fields depending on your Zoho setup)
-    const notes = delivery.notes || 
-                  delivery.custom_field_delivery_notes || 
-                  delivery.customer_notes || 
-                  '';
+    // Extract notes
+    const notes = delivery.notes || delivery.custom_field_delivery_notes || '';
 
-    // Merge cells for label area (increased to 8 rows to fit items + notes)
+    // Merge cells for label area
     const endRow = startRow + 7;
     const cell = worksheet.getCell(startRow, startCol);
     worksheet.mergeCells(startRow, startCol, endRow, startCol);
 
-    // Build label with rich text formatting
+    // Build label content
     const labelContent = [];
     
     // Customer name (bold, larger)
@@ -298,25 +358,33 @@ class DeliveryLabelGenerator {
     });
     
     // Address
-    labelContent.push({ 
-      text: street + '\n', 
-      font: { size: 10, name: 'Arial' } 
-    });
-    labelContent.push({ 
-      text: `${city}, ${state} ${zip}\n`, 
-      font: { size: 10, name: 'Arial' } 
-    });
+    if (street || city || state || zip) {
+      if (street) {
+        labelContent.push({ 
+          text: street + '\n', 
+          font: { size: 9, name: 'Arial' } 
+        });
+      }
+      if (city || state || zip) {
+        labelContent.push({ 
+          text: `${city}${city && state ? ', ' : ''}${state}${(city || state) && zip ? ' ' : ''}${zip}\n`, 
+          font: { size: 9, name: 'Arial' } 
+        });
+      }
+    }
     
-    // Phone
-    labelContent.push({ 
-      text: `Phone: ${phone}\n\n`, 
-      font: { size: 9, name: 'Arial' } 
-    });
-    
-    // Items to deliver (if any)
-    if (itemsList) {
+    // Phone  
+    if (phone.trim()) {
       labelContent.push({ 
-        text: 'Items:\n', 
+        text: `Phone: ${phone}\n`, 
+        font: { size: 9, name: 'Arial' } 
+      });
+    }
+    
+    // Items to deliver
+    if (itemsList.trim()) {
+      labelContent.push({ 
+        text: '\nItems:\n', 
         font: { size: 9, name: 'Arial', bold: true } 
       });
       labelContent.push({ 
@@ -325,11 +393,11 @@ class DeliveryLabelGenerator {
       });
     }
     
-    // Notes (if any)
-    if (notes) {
+    // Notes
+    if (notes.trim()) {
       labelContent.push({ 
-        text: '\nNotes: ', 
-        font: { size: 9, name: 'Arial', bold: true } 
+        text: '\n📝 Notes: ', 
+        font: { size: 8, name: 'Arial', bold: true } 
       });
       labelContent.push({ 
         text: notes, 
@@ -346,7 +414,7 @@ class DeliveryLabelGenerator {
       wrapText: true
     };
 
-    // Border around label (optional - comment out if you don't want borders)
+    // Border
     cell.border = {
       top: { style: 'thin', color: { argb: 'FFCCCCCC' } },
       left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
@@ -354,7 +422,6 @@ class DeliveryLabelGenerator {
       right: { style: 'thin', color: { argb: 'FFCCCCCC' } }
     };
 
-    // Set row height (increased for more content)
     worksheet.getRow(startRow).height = this.labelHeightPoints;
   }
 }
@@ -443,6 +510,41 @@ app.get('/api/files', (req, res) => {
     .slice(0, 10); // Last 10 files
 
   res.json({ files });
+});
+
+// Debug endpoint - show raw invoice data
+app.get('/api/debug/invoices', async (req, res) => {
+  try {
+    const response = await axios.get(`${zohoBooks.baseUrl}/invoices`, {
+      headers: await zohoBooks.getHeaders(),
+      params: {
+        organization_id: zohoBooks.organizationId,
+        sort_column: 'customer_name',
+        sort_order: 'A',
+        page: 1,
+        per_page: 10
+      }
+    });
+
+    const invoices = response.data.invoices || [];
+    const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd');
+    
+    res.json({
+      tomorrow: tomorrow,
+      today: format(new Date(), 'yyyy-MM-dd'),
+      totalInvoices: invoices.length,
+      invoices: invoices.map(inv => ({
+        invoiceNumber: inv.invoice_number,
+        customer: inv.customer_name,
+        cf_delivery_date: inv.cf_delivery_date,
+        cf_delivery_date_unformatted: inv.cf_delivery_date_unformatted,
+        cf_delivery_pick_up: inv.cf_delivery_pick_up,
+        status: inv.status
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Health check
