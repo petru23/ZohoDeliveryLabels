@@ -417,6 +417,11 @@ class DeliveryLabelGenerator {
 const zohoBooks = new ZohoBooksAPI();
 const labelGenerator = new DeliveryLabelGenerator();
 
+// Root endpoint - serve dashboard
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // Generate labels endpoint (for TOMORROW by default)
 app.get('/api/generate-labels', async (req, res) => {
   try {
