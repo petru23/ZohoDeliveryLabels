@@ -153,9 +153,17 @@ class ZohoBooksAPI {
 
   // Get all invoices for tomorrow's delivery
   async getTomorrowDeliveries() {
+    return this.getDeliveriesForDate(format(addDays(new Date(), 1), 'yyyy-MM-dd'));
+  }
+
+  // Get all invoices for today's delivery
+  async getTodayDeliveries() {
+    return this.getDeliveriesForDate(format(new Date(), 'yyyy-MM-dd'));
+  }
+
+  // Get deliveries for a specific date
+  async getDeliveriesForDate(targetDate) {
     try {
-      const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd');
-      
       // Zoho Billing API call - get all invoices with custom fields (sorted by date)
       const response = await axios.get(`${this.baseUrl}/invoices`, {
         headers: await this.getHeaders(),
@@ -168,7 +176,7 @@ class ZohoBooksAPI {
         }
       });
 
-      // Filter client-side for tomorrow's deliveries
+      // Filter client-side for target date's deliveries
       const deliveries = (response.data.invoices || []).filter(invoice => {
         // Check if this invoice has a delivery date
         if (!invoice.cf_delivery_date && !invoice.cf_delivery_date_unformatted) {
@@ -191,7 +199,7 @@ class ZohoBooksAPI {
           }
         }
 
-        if (deliveryDate !== tomorrow) {
+        if (deliveryDate !== targetDate) {
           return false;
         }
 
@@ -202,7 +210,7 @@ class ZohoBooksAPI {
         return isDelivery;
       });
 
-      console.log(`✓ Found ${deliveries.length} deliveries for tomorrow (${tomorrow})`);
+      console.log(`✓ Found ${deliveries.length} deliveries for ${targetDate}`);
       return deliveries;
     } catch (error) {
       console.error('Zoho API Error:', error.response?.data || error.message);
@@ -284,7 +292,7 @@ class DeliveryLabelGenerator {
       currentCol++;
       if (currentCol > this.labelsPerRow) {
         currentCol = 1;
-        currentRow += 6; // Each label takes ~6 rows of space
+        currentRow += 8; // Each label takes 8 rows (startRow to endRow+1)
       }
     }
 
@@ -433,7 +441,7 @@ class DeliveryLabelGenerator {
 const zohoBooks = new ZohoBooksAPI();
 const labelGenerator = new DeliveryLabelGenerator();
 
-// Generate labels endpoint
+// Generate labels endpoint (for TOMORROW by default)
 app.get('/api/generate-labels', async (req, res) => {
   try {
     console.log('Fetching tomorrow\'s deliveries from Zoho Books...');
@@ -451,7 +459,7 @@ app.get('/api/generate-labels', async (req, res) => {
 
     console.log(`Found ${invoices.length} deliveries. Generating labels...`);
     
-    // Get detailed data for each invoice (includes custom fields)
+    // Get detailed data for each invoice
     const detailedDeliveries = await Promise.all(
       invoices.map(inv => zohoBooks.getInvoiceDetails(inv.invoice_id))
     );
@@ -460,14 +468,74 @@ app.get('/api/generate-labels', async (req, res) => {
     const validDeliveries = detailedDeliveries.filter(d => d !== null);
 
     // Generate Excel file
+    const tomorrow = addDays(new Date(), 1);
+    const filename = `${format(tomorrow, 'yyyy-MM-dd')}.xlsx`;
     const result = await labelGenerator.generateLabels(validDeliveries);
 
     res.json({
       success: true,
-      message: `Generated labels for ${validDeliveries.length} deliveries`,
+      message: `Generated labels for ${validDeliveries.length} deliveries (tomorrow)`,
       count: validDeliveries.length,
       filename: result.filename,
       downloadUrl: `/download/${result.filename}`
+    });
+
+  } catch (error) {
+    console.error('Label generation error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Generate labels for TODAY (alternative endpoint)
+app.get('/api/generate-labels-today', async (req, res) => {
+  try {
+    console.log('Fetching today\'s deliveries from Zoho Books...');
+    
+    // Get invoices scheduled for today
+    const invoices = await zohoBooks.getTodayDeliveries();
+    
+    if (invoices.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No deliveries scheduled for today',
+        count: 0
+      });
+    }
+
+    console.log(`Found ${invoices.length} deliveries. Generating labels...`);
+    
+    // Get detailed data for each invoice
+    const detailedDeliveries = await Promise.all(
+      invoices.map(inv => zohoBooks.getInvoiceDetails(inv.invoice_id))
+    );
+
+    // Filter out any failed fetches
+    const validDeliveries = detailedDeliveries.filter(d => d !== null);
+
+    // Generate Excel file using the label generator
+    const result = await labelGenerator.generateLabels(validDeliveries);
+    
+    // Rename the file to indicate it's today (the generator uses tomorrow's date)
+    const today = new Date();
+    const todayFilename = `${format(today, 'yyyy-MM-dd')}-deliveries.xlsx`;
+    const outputDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, 'output');
+    const oldPath = result.filepath;
+    const newPath = path.join(outputDir, todayFilename);
+    
+    // Rename the generated file (only if it has tomorrow's date in the name)
+    if (oldPath.includes(format(addDays(new Date(), 1), 'yyyy-MM-dd'))) {
+      fs.renameSync(oldPath, newPath);
+    }
+
+    res.json({
+      success: true,
+      message: `Generated labels for ${validDeliveries.length} deliveries (today)`,
+      count: validDeliveries.length,
+      filename: todayFilename,
+      downloadUrl: `/download/${todayFilename}`
     });
 
   } catch (error) {
