@@ -11,14 +11,124 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // ============================================================================
+// ZOHO OAUTH TOKEN MANAGER
+// ============================================================================
+// Handles automatic token refresh every 50 minutes
+// See: https://www.zoho.com/billing/api/v1/oauth/
+
+class TokenManager {
+  constructor() {
+    this.organizationId = process.env.ZOHO_ORGANIZATION_ID;
+    this.clientId = process.env.ZOHO_CLIENT_ID;
+    this.clientSecret = process.env.ZOHO_CLIENT_SECRET;
+    this.refreshToken = process.env.ZOHO_REFRESH_TOKEN || null;
+    this.accessToken = process.env.ZOHO_ACCESS_TOKEN;
+    this.tokenExpiresAt = null;
+    this.authBaseUrl = 'https://accounts.zoho.com.au/oauth/v2/token';
+    this.refreshInterval = null;
+    
+    // Start automatic refresh
+    this.startAutoRefresh();
+  }
+
+  // Initialize refresh token from current access token (one-time setup)
+  async initializeRefreshToken() {
+    if (this.refreshToken) {
+      console.log('✓ Refresh token already exists');
+      return true;
+    }
+
+    try {
+      console.log('🔄 Generating refresh token from access token...');
+      // Note: This requires the initial token to have been generated with offline access
+      // For now, we'll assume you manually set ZOHO_REFRESH_TOKEN in .env after first generation
+      console.log('⚠️  Please manually generate refresh token:');
+      console.log('   1. Go to API Console and generate token with offline access');
+      console.log('   2. Save ZOHO_REFRESH_TOKEN to .env');
+      return false;
+    } catch (error) {
+      console.error('Error initializing refresh token:', error.message);
+      return false;
+    }
+  }
+
+  // Get new access token using refresh token
+  async refreshAccessToken() {
+    if (!this.refreshToken) {
+      console.error('❌ No refresh token available. Cannot refresh access token.');
+      return false;
+    }
+
+    try {
+      console.log('🔄 Refreshing access token...');
+      const response = await axios.post(this.authBaseUrl, null, {
+        params: {
+          refresh_token: this.refreshToken,
+          client_id: this.clientId,
+          client_secret: this.clientSecret,
+          grant_type: 'refresh_token'
+        }
+      });
+
+      this.accessToken = response.data.access_token;
+      this.refreshToken = response.data.refresh_token; // Update refresh token (rotates on each refresh)
+      this.tokenExpiresAt = Date.now() + (response.data.expires_in * 1000);
+      
+      // Update environment variable for reference
+      process.env.ZOHO_ACCESS_TOKEN = this.accessToken;
+      process.env.ZOHO_REFRESH_TOKEN = this.refreshToken;
+      
+      console.log(`✓ Access token refreshed. Expires in ${response.data.expires_in} seconds`);
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to refresh access token:', error.response?.data || error.message);
+      return false;
+    }
+  }
+
+  // Automatic refresh every 50 minutes
+  startAutoRefresh() {
+    // Refresh every 50 minutes (3000000 ms)
+    const REFRESH_INTERVAL = 50 * 60 * 1000;
+
+    this.refreshInterval = setInterval(async () => {
+      console.log(`\n[${new Date().toISOString()}] Checking token expiry...`);
+      await this.refreshAccessToken();
+    }, REFRESH_INTERVAL);
+
+    console.log('✓ Token auto-refresh scheduled (every 50 minutes)');
+  }
+
+  stopAutoRefresh() {
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+      console.log('✓ Token auto-refresh stopped');
+    }
+  }
+
+  getAccessToken() {
+    return this.accessToken;
+  }
+}
+
+// Initialize token manager
+const tokenManager = new TokenManager();
+
+// ============================================================================
 // ZOHO BOOKS API CLIENT
 // ============================================================================
 
 class ZohoBooksAPI {
   constructor() {
     this.organizationId = process.env.ZOHO_ORGANIZATION_ID;
-    this.accessToken = process.env.ZOHO_ACCESS_TOKEN;
-    this.baseUrl = 'https://www.zohoapis.com/books/v3';
+    this.baseUrl = 'https://www.zohoapis.com.au/billing/v1';
+  }
+
+  // Get current access token from token manager
+  getHeaders() {
+    return {
+      'Authorization': `Zoho-oauthtoken ${tokenManager.getAccessToken()}`
+    };
   }
 
   // Get all invoices for tomorrow's delivery
@@ -26,11 +136,9 @@ class ZohoBooksAPI {
     try {
       const tomorrow = format(addDays(new Date(), 1), 'yyyy-MM-dd');
       
-      // Zoho Books API call - adjust field names to match YOUR custom fields
+      // Zoho Billing API call - get invoices for tomorrow's delivery
       const response = await axios.get(`${this.baseUrl}/invoices`, {
-        headers: {
-          'Authorization': `Zoho-oauthtoken ${this.accessToken}`
-        },
+        headers: this.getHeaders(),
         params: {
           organization_id: this.organizationId,
           // Filter by custom field "delivery_date" = tomorrow
@@ -42,7 +150,17 @@ class ZohoBooksAPI {
         }
       });
 
-      return response.data.invoices || [];
+      // Filter to include ONLY deliveries (exclude pickups)
+      // Note: Adjust the field value to match your Zoho setup (e.g., "Delivery", "delivery", "D")
+      const deliveries = (response.data.invoices || []).filter(invoice => {
+        const deliveryType = invoice.cf_delivery_pick_up || '';
+        // Only include if cf_delivery_pick_up indicates delivery (not pickup)
+        return deliveryType.toLowerCase().includes('delivery') || 
+               deliveryType === 'D' || 
+               deliveryType === 'Delivery';
+      });
+
+      return deliveries;
     } catch (error) {
       console.error('Zoho API Error:', error.response?.data || error.message);
       throw new Error('Failed to fetch invoices from Zoho Books');
@@ -53,9 +171,7 @@ class ZohoBooksAPI {
   async getInvoiceDetails(invoiceId) {
     try {
       const response = await axios.get(`${this.baseUrl}/invoices/${invoiceId}`, {
-        headers: {
-          'Authorization': `Zoho-oauthtoken ${this.accessToken}`
-        },
+        headers: this.getHeaders(),
         params: {
           organization_id: this.organizationId
         }

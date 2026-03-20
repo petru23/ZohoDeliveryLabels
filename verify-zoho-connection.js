@@ -43,7 +43,7 @@ async function verifyZohoConnection() {
   console.log('2️⃣  Testing Zoho Books API connection...');
 
   try {
-    const response = await axios.get('https://www.zohoapis.com/books/v3/invoices', {
+    const response = await axios.get('https://www.zohoapis.com.au/billing/v1/invoices', {
       headers: {
         'Authorization': `Zoho-oauthtoken ${accessToken}`
       },
@@ -81,7 +81,7 @@ async function verifyZohoConnection() {
 
   try {
     // Get one invoice to check field structure
-    const response = await axios.get('https://www.zohoapis.com/books/v3/invoices', {
+    const response = await axios.get('https://www.zohoapis.com.au/billing/v1/invoices', {
       headers: {
         'Authorization': `Zoho-oauthtoken ${accessToken}`
       },

@@ -38,6 +38,28 @@ Each label requires:
 
 ---
 
+### Add "Delivery/Pickup Type" Field
+
+**Location:** Same place (Invoice Custom Fields)
+
+1. Click **"Add Custom Field"**
+2. Settings:
+   - **Field Label:** Delivery/Pickup
+   - **Field Type:** Dropdown or Text
+   - **Options (if dropdown):**
+     - **Delivery** ← This is what the system filters for
+     - **Pickup**
+   - **Show in all PDFs:** Yes
+   - **Show on portal:** No
+
+3. Click **Save**
+
+**API Field Name:** `cf_delivery_pick_up`
+
+**Important:** The system ONLY generates labels for invoices marked as **"Delivery"**. Invoices marked as "Pickup" will be ignored.
+
+---
+
 ### Add "Delivery Notes" Field
 
 **Location:** Same place (Invoice Custom Fields)
