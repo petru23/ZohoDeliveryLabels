@@ -243,14 +243,16 @@ class ZohoBooksAPI {
 class DeliveryLabelGenerator {
   constructor() {
     // Avery 5162 compatible: 14 labels per A4 sheet
-    // Label size: 99.1mm x 38.1mm
+    // Label size: 99.1mm x 38.1mm (2 columns × 7 rows)
     this.labelsPerRow = 2;
     this.labelsPerColumn = 7;
     this.labelsPerPage = 14;
     
-    // Excel column widths (approximate conversion from mm to Excel units)
-    this.labelWidthUnits = 38; // ~99.1mm
-    this.labelHeightPoints = 108; // ~38.1mm in points (1mm ≈ 2.83pt)
+    // Excel sizing for Avery 5162:
+    // Each cell column: 24 units ≈ 50mm (99.1mm ÷ 2 ≈ 50mm per label)
+    // Each row: 28.5 points ≈ 10mm height (for 4 rows per label = 40mm ≈ 38.1mm)
+    this.labelColumnWidth = 24;
+    this.labelRowHeight = 28.5;
   }
 
   async generateLabels(deliveries) {
@@ -261,9 +263,9 @@ class DeliveryLabelGenerator {
         orientation: 'portrait',
         fitToPage: true,
         margins: {
-          left: 0.19, // ~5mm
-          right: 0.19,
-          top: 0.5, // ~13mm
+          left: 0.5, // 12.7mm left margin
+          right: 0.5,
+          top: 0.5, // 12.7mm top margin
           bottom: 0.5,
           header: 0,
           footer: 0
@@ -271,9 +273,9 @@ class DeliveryLabelGenerator {
       }
     });
 
-    // Set column widths (2 columns for labels)
-    worksheet.getColumn(1).width = this.labelWidthUnits;
-    worksheet.getColumn(2).width = this.labelWidthUnits;
+    // Set column widths (2 columns, each is one label width)
+    worksheet.getColumn(1).width = this.labelColumnWidth;
+    worksheet.getColumn(2).width = this.labelColumnWidth;
 
     let currentRow = 1;
     let currentCol = 1;
@@ -292,7 +294,7 @@ class DeliveryLabelGenerator {
       currentCol++;
       if (currentCol > this.labelsPerRow) {
         currentCol = 1;
-        currentRow += 8; // Each label takes 8 rows (startRow to endRow+1)
+        currentRow += 4; // Each label is 4 rows tall (38.1mm ÷ 9.5mm per row)
       }
     }
 
@@ -317,99 +319,75 @@ class DeliveryLabelGenerator {
     // Extract customer and address info
     const customerName = delivery.customer_name || 'CUSTOMER NAME MISSING';
     
-    // Address: Try shipping first, then billing full address
-    let street = delivery.shipping_address?.street || delivery.billing_address?.street || '';
-    let city = delivery.shipping_address?.city || delivery.billing_address?.city || '';
-    let state = delivery.shipping_address?.state || delivery.billing_address?.state || '';
-    let zip = delivery.shipping_address?.zip || delivery.billing_address?.zip || '';
-    
-    // If no structured address, use the "attention" field (single line address)
-    if (!street && !city && delivery.billing_address?.attention) {
-      const attention = delivery.billing_address.attention;
-      // Try to split attention field: "number street, suburb/state"
-      street = attention;
+    // Address: Try shipping first, then billing
+    let address = '';
+    if (delivery.billing_address?.attention) {
+      address = delivery.billing_address.attention; // Single line address
+    } else {
+      let parts = [];
+      if (delivery.shipping_address?.street) parts.push(delivery.shipping_address.street);
+      if (delivery.shipping_address?.city) parts.push(delivery.shipping_address.city);
+      address = parts.join(', ');
     }
     
-    // Phone: Try multiple sources
+    // Phone
     let phone = delivery.shipping_address?.phone || 
                 delivery.billing_address?.phone || 
                 (delivery.contactpersons?.[0]?.mobile) ||
-                (delivery.contactpersons?.[0]?.phone) ||
                 (delivery.contact_persons_associated?.[0]?.mobile) ||
                 '';
     
-    // Extract items to deliver from invoice_items (not line_items)
+    // Extract first item only (to fit in label)
     const invoiceItems = delivery.invoice_items || [];
-    const itemsList = invoiceItems
-      .map(item => {
-        const desc = item.description || item.name || 'Item';
-        const qty = item.quantity || 1;
-        return `• ${desc.split('\n')[0]} (Qty: ${qty})`;
-      })
-      .join('\n');
-    
-    // Extract notes
-    const notes = delivery.notes || delivery.custom_field_delivery_notes || '';
+    const firstItem = invoiceItems[0];
+    let itemText = '';
+    if (firstItem) {
+      const desc = firstItem.description || firstItem.name || 'Item';
+      const itemName = desc.split('\n')[0]; // Just first line
+      itemText = itemName.substring(0, 50); // Limit to 50 chars
+    }
 
-    // Merge cells for label area
-    const endRow = startRow + 7;
+    // Merge cells for label area (single column, 4 rows)
+    // Each row is 10mm, 4 rows = 40mm ≈ 38.1mm label height
+    const endRow = startRow + 3;
     const cell = worksheet.getCell(startRow, startCol);
     worksheet.mergeCells(startRow, startCol, endRow, startCol);
 
-    // Build label content
+    // Set row heights for the label (4 rows of ~10mm each)
+    for (let r = startRow; r <= endRow; r++) {
+      worksheet.getRow(r).height = this.labelRowHeight; // ~10mm per row
+    }
+
+    // Build label content - compact format
     const labelContent = [];
     
-    // Customer name (bold, larger)
+    // Customer name (bold, size 10)
     labelContent.push({ 
       text: customerName + '\n', 
-      font: { bold: true, size: 11, name: 'Arial' } 
+      font: { bold: true, size: 10, name: 'Arial' } 
     });
     
-    // Address
-    if (street || city || state || zip) {
-      if (street) {
-        labelContent.push({ 
-          text: street + '\n', 
-          font: { size: 9, name: 'Arial' } 
-        });
-      }
-      if (city || state || zip) {
-        labelContent.push({ 
-          text: `${city}${city && state ? ', ' : ''}${state}${(city || state) && zip ? ' ' : ''}${zip}\n`, 
-          font: { size: 9, name: 'Arial' } 
-        });
-      }
-    }
-    
-    // Phone  
-    if (phone.trim()) {
+    // Address (size 8)
+    if (address) {
       labelContent.push({ 
-        text: `Phone: ${phone}\n`, 
-        font: { size: 9, name: 'Arial' } 
-      });
-    }
-    
-    // Items to deliver
-    if (itemsList.trim()) {
-      labelContent.push({ 
-        text: '\nItems:\n', 
-        font: { size: 9, name: 'Arial', bold: true } 
-      });
-      labelContent.push({ 
-        text: itemsList + '\n', 
+        text: address + '\n', 
         font: { size: 8, name: 'Arial' } 
       });
     }
     
-    // Notes
-    if (notes.trim()) {
+    // Phone (size 8)
+    if (phone.trim()) {
       labelContent.push({ 
-        text: '\n📝 Notes: ', 
-        font: { size: 8, name: 'Arial', bold: true } 
+        text: `Ph: ${phone} `, 
+        font: { size: 8, name: 'Arial' } 
       });
+    }
+    
+    // Item (size 8)
+    if (itemText) {
       labelContent.push({ 
-        text: notes, 
-        font: { size: 8, name: 'Arial', italic: true } 
+        text: `• ${itemText}`, 
+        font: { size: 8, name: 'Arial' } 
       });
     }
 
@@ -422,15 +400,13 @@ class DeliveryLabelGenerator {
       wrapText: true
     };
 
-    // Border
+    // Border (light gray)
     cell.border = {
-      top: { style: 'thin', color: { argb: 'FFCCCCCC' } },
-      left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
-      bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } },
-      right: { style: 'thin', color: { argb: 'FFCCCCCC' } }
+      top: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+      left: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+      bottom: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+      right: { style: 'thin', color: { argb: 'FFE0E0E0' } }
     };
-
-    worksheet.getRow(startRow).height = this.labelHeightPoints;
   }
 }
 
