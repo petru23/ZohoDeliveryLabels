@@ -61,14 +61,14 @@ class TokenManager {
 
     try {
       console.log('🔄 Refreshing access token...');
-      const response = await axios.post(this.authBaseUrl, null, {
-        params: {
-          refresh_token: this.refreshToken,
-          client_id: this.clientId,
-          client_secret: this.clientSecret,
-          grant_type: 'refresh_token'
-        }
-      });
+      
+      const params = new URLSearchParams();
+      params.append('refresh_token', this.refreshToken);
+      params.append('client_id', this.clientId);
+      params.append('client_secret', this.clientSecret);
+      params.append('grant_type', 'refresh_token');
+
+      const response = await axios.post(this.authBaseUrl, params);
 
       this.accessToken = response.data.access_token;
       this.refreshToken = response.data.refresh_token; // Update refresh token (rotates on each refresh)
@@ -234,6 +234,79 @@ class ZohoBooksAPI {
       return null;
     }
   }
+
+  // Get customer/contact details (for address lookup when invoice address is missing)
+  async getCustomerDetails(customerId) {
+    try {
+      const response = await axios.get(`${this.baseUrl}/contacts/${customerId}`, {
+        headers: await this.getHeaders(),
+        params: {
+          organization_id: this.organizationId
+        }
+      });
+
+      return response.data.contact;
+    } catch (error) {
+      console.error(`Error fetching customer ${customerId}:`, error.message);
+      return null;
+    }
+  }
+
+  // Enrich deliveries with customer data when address/phone is missing
+  async enrichDeliveriesWithCustomerData(deliveries) {
+    const enrichedDeliveries = [];
+    
+    for (const delivery of deliveries) {
+      // Check if address is missing from invoice
+      const hasShippingAddress = delivery.shipping_address?.street || delivery.shipping_address?.city;
+      const hasBillingAddress = delivery.billing_address?.street || delivery.billing_address?.city;
+      const hasPhone = delivery.shipping_address?.phone || 
+                       delivery.billing_address?.phone || 
+                       delivery.contactpersons?.[0]?.mobile ||
+                       delivery.contact_persons_associated?.[0]?.mobile;
+      
+      // If address or phone is missing, fetch customer details
+      if (!hasShippingAddress && !hasBillingAddress || !hasPhone) {
+        console.log(`⚠️  Missing data for ${delivery.customer_name}. Fetching customer details...`);
+        
+        const customerDetails = await this.getCustomerDetails(delivery.customer_id);
+        
+        if (customerDetails) {
+          // Merge customer data into delivery object
+          // Only add if not already present
+          if (!hasShippingAddress && !hasBillingAddress) {
+            // Use customer's primary billing address
+            if (customerDetails.billing_address) {
+              delivery.customer_billing_address = customerDetails.billing_address;
+              console.log(`  ✓ Added customer billing address for ${delivery.customer_name}`);
+            }
+            // Or shipping address if available
+            if (customerDetails.shipping_address) {
+              delivery.customer_shipping_address = customerDetails.shipping_address;
+              console.log(`  ✓ Added customer shipping address for ${delivery.customer_name}`);
+            }
+          }
+          
+          // Add customer phone/mobile if missing
+          if (!hasPhone) {
+            if (customerDetails.phone || customerDetails.mobile) {
+              delivery.customer_phone = customerDetails.phone || customerDetails.mobile;
+              console.log(`  ✓ Added customer phone for ${delivery.customer_name}`);
+            }
+          }
+          
+          // Add contact persons if available
+          if (customerDetails.contact_persons && customerDetails.contact_persons.length > 0) {
+            delivery.customer_contact_persons = customerDetails.contact_persons;
+          }
+        }
+      }
+      
+      enrichedDeliveries.push(delivery);
+    }
+    
+    return enrichedDeliveries;
+  }
 }
 
 // ============================================================================
@@ -319,32 +392,149 @@ class DeliveryLabelGenerator {
     // Extract customer and address info
     const customerName = delivery.customer_name || 'CUSTOMER NAME MISSING';
     
-    // Address: Try shipping first, then billing
+    // Address extraction with fallback chain:
+    // 1. Invoice shipping address
+    // 2. Invoice billing address  
+    // 3. Customer shipping address (from enrichment)
+    // 4. Customer billing address (from enrichment)
+    // 5. Attention field
     let address = '';
-    if (delivery.billing_address?.attention) {
-      address = delivery.billing_address.attention; // Single line address
-    } else {
+    
+    // First try invoice shipping address
+    if (delivery.shipping_address) {
       let parts = [];
-      if (delivery.shipping_address?.street) parts.push(delivery.shipping_address.street);
-      if (delivery.shipping_address?.city) parts.push(delivery.shipping_address.city);
-      address = parts.join(', ');
+      if (delivery.shipping_address.street) parts.push(delivery.shipping_address.street);
+      if (delivery.shipping_address.street2) parts.push(delivery.shipping_address.street2);
+      if (delivery.shipping_address.city) parts.push(delivery.shipping_address.city);
+      if (delivery.shipping_address.state) parts.push(delivery.shipping_address.state);
+      if (parts.length > 0) {
+        address = parts.join(', ');
+      }
     }
     
-    // Phone
+    // Fall back to invoice billing address
+    if (!address && delivery.billing_address) {
+      let parts = [];
+      if (delivery.billing_address.street) parts.push(delivery.billing_address.street);
+      if (delivery.billing_address.street2) parts.push(delivery.billing_address.street2);
+      if (delivery.billing_address.city) parts.push(delivery.billing_address.city);
+      if (delivery.billing_address.state) parts.push(delivery.billing_address.state);
+      if (parts.length > 0) {
+        address = parts.join(', ');
+      }
+    }
+    
+    // Fall back to customer shipping address (from customer record)
+    if (!address && delivery.customer_shipping_address) {
+      let parts = [];
+      if (delivery.customer_shipping_address.street) parts.push(delivery.customer_shipping_address.street);
+      if (delivery.customer_shipping_address.street2) parts.push(delivery.customer_shipping_address.street2);
+      if (delivery.customer_shipping_address.city) parts.push(delivery.customer_shipping_address.city);
+      if (delivery.customer_shipping_address.state) parts.push(delivery.customer_shipping_address.state);
+      if (parts.length > 0) {
+        address = parts.join(', ');
+      }
+    }
+    
+    // Fall back to customer billing address (from customer record)
+    if (!address && delivery.customer_billing_address) {
+      let parts = [];
+      if (delivery.customer_billing_address.street) parts.push(delivery.customer_billing_address.street);
+      if (delivery.customer_billing_address.street2) parts.push(delivery.customer_billing_address.street2);
+      if (delivery.customer_billing_address.city) parts.push(delivery.customer_billing_address.city);
+      if (delivery.customer_billing_address.state) parts.push(delivery.customer_billing_address.state);
+      if (parts.length > 0) {
+        address = parts.join(', ');
+      }
+    }
+    
+    // Try attention field as last resort
+    if (!address && delivery.billing_address?.attention) {
+      address = delivery.billing_address.attention;
+    }
+    
+    // Phone extraction with fallback chain
     let phone = delivery.shipping_address?.phone || 
                 delivery.billing_address?.phone || 
                 (delivery.contactpersons?.[0]?.mobile) ||
                 (delivery.contact_persons_associated?.[0]?.mobile) ||
+                delivery.customer_phone ||  // From customer record
+                (delivery.customer_contact_persons?.[0]?.mobile) ||  // From customer contacts
                 '';
     
-    // Extract first item only (to fit in label)
+    // DEBUG: Log entire delivery object structure for this customer
+    console.log(`\n================== ${customerName} ==================`);
+    console.log('ALL FIELDS IN DELIVERY OBJECT:');
+    Object.keys(delivery).forEach(key => {
+      const value = delivery[key];
+      if (value && typeof value === 'object') {
+        if (Array.isArray(value)) {
+          console.log(`  ${key}: [Array with ${value.length} items]`);
+          value.forEach((item, idx) => {
+            if (typeof item === 'object') {
+              console.log(`    [${idx}]:`, JSON.stringify(item).substring(0, 100));
+            } else {
+              console.log(`    [${idx}]: ${item}`);
+            }
+          });
+        } else {
+          console.log(`  ${key}:`, JSON.stringify(value).substring(0, 150));
+        }
+      } else {
+        console.log(`  ${key}: ${value}`);
+      }
+    });
+    console.log(`==========================================\n`);
+    
+    // Now extract product details and services from invoice_items (filter out fees and condition notes)
     const invoiceItems = delivery.invoice_items || [];
-    const firstItem = invoiceItems[0];
-    let itemText = '';
-    if (firstItem) {
-      const desc = firstItem.description || firstItem.name || 'Item';
-      const itemName = desc.split('\n')[0]; // Just first line
-      itemText = itemName.substring(0, 50); // Limit to 50 chars
+    const feeKeywords = ['card fee', 'shopify fee', 'payment fee', 'transaction fee'];
+    const isAFee = (itemName) => feeKeywords.some(fee => itemName.toLowerCase().includes(fee));
+    
+    // Keywords to exclude from product description (condition notes, damage notes, warranty, thank you messages, etc)
+    const excludeKeywords = ['factory second', 'second hand', 'carton damaged', 'damaged', 'scratched', 'dented', 'warranty', 'shopify', 'thanks again for choosing us', 'hope you enjoy', 'thank you for choosing'];
+    const shouldExcludeLine = (line) => excludeKeywords.some(keyword => line.toLowerCase().includes(keyword));
+    
+    // Get all products (not just first one) - show full product descriptions
+    let products = [];
+    let services = [];
+    
+    for (const item of invoiceItems) {
+      // Get full description (all lines, not just first line)
+      const fullDescription = (item.description || item.name || 'Item').trim();
+      const itemName = fullDescription.split('\n')[0]; // First line for checking type
+      
+      if (isAFee(itemName)) {
+        continue; // Skip fees
+      }
+      
+      // Check if it's a service (installation/install/instal or removal/remove)
+      const isService = /instal|remov/i.test(itemName);
+      
+      if (isService) {
+        services.push(itemName.trim());
+      } else {
+        // Filter out lines with excluded keywords AND service keywords
+        const productLines = fullDescription.split('\n')
+          .map(line => line.trim())
+          .filter(line => {
+            if (line.length === 0) return false;
+            if (shouldExcludeLine(line)) return false; // Exclude warranty, damaged, etc
+            if (/instal|remov/i.test(line)) return false; // Exclude service lines
+            return true;
+          });
+        
+        if (productLines.length > 0) {
+          products.push(productLines.join('\n')); // Show remaining product lines only
+        }
+      }
+    }
+    
+    // DEBUG: Log what we found for this customer
+    if (products.length > 0 || services.length > 0) {
+      console.log(`[${customerName}] Products: ${products.length}, Services: ${services.length}`);
+      if (products.length > 0) console.log(`  → Products: ${products.join(' | ')}`);
+      if (services.length > 0) console.log(`  → Services: ${services.join(' | ')}`);
     }
 
     // Merge cells for label area (single column, 4 rows)
@@ -378,16 +568,24 @@ class DeliveryLabelGenerator {
     // Phone (size 8)
     if (phone.trim()) {
       labelContent.push({ 
-        text: `Ph: ${phone} `, 
+        text: `Ph: ${phone}`, 
         font: { size: 8, name: 'Arial' } 
       });
     }
     
-    // Item (size 8)
-    if (itemText) {
+    // All products (size 8) - show each on separate line
+    if (products.length > 0) {
       labelContent.push({ 
-        text: `• ${itemText}`, 
+        text: (phone.trim() ? '\n' : '') + products.join('\n'), 
         font: { size: 8, name: 'Arial' } 
+      });
+    }
+    
+    // Services/Installation info (bold, size 7)
+    if (services.length > 0) {
+      labelContent.push({ 
+        text: '\n' + services.join(', '), 
+        font: { bold: true, size: 7, name: 'Arial' } 
       });
     }
 
@@ -448,15 +646,18 @@ app.get('/api/generate-labels', async (req, res) => {
     // Filter out any failed fetches
     const validDeliveries = detailedDeliveries.filter(d => d !== null);
 
+    // Enrich with customer data if address/phone is missing
+    const enrichedDeliveries = await zohoBooks.enrichDeliveriesWithCustomerData(validDeliveries);
+
     // Generate Excel file
     const tomorrow = addDays(new Date(), 1);
     const filename = `${format(tomorrow, 'yyyy-MM-dd')}.xlsx`;
-    const result = await labelGenerator.generateLabels(validDeliveries);
+    const result = await labelGenerator.generateLabels(enrichedDeliveries);
 
     res.json({
       success: true,
-      message: `Generated labels for ${validDeliveries.length} deliveries (tomorrow)`,
-      count: validDeliveries.length,
+      message: `Generated labels for ${enrichedDeliveries.length} deliveries (tomorrow)`,
+      count: enrichedDeliveries.length,
       filename: result.filename,
       downloadUrl: `/download/${result.filename}`
     });
@@ -496,8 +697,11 @@ app.get('/api/generate-labels-today', async (req, res) => {
     // Filter out any failed fetches
     const validDeliveries = detailedDeliveries.filter(d => d !== null);
 
+    // Enrich with customer data if address/phone is missing
+    const enrichedDeliveries = await zohoBooks.enrichDeliveriesWithCustomerData(validDeliveries);
+
     // Generate Excel file using the label generator
-    const result = await labelGenerator.generateLabels(validDeliveries);
+    const result = await labelGenerator.generateLabels(enrichedDeliveries);
     
     // Rename the file to indicate it's today (the generator uses tomorrow's date)
     const today = new Date();

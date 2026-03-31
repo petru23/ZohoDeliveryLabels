@@ -31,12 +31,13 @@ async function testTokenRefresh() {
   try {
     console.log('🔄 Attempting to refresh access token...\n');
 
-    const response = await axios.post('https://accounts.zoho.com.au/oauth/v2/token', {
-      refresh_token: refreshToken,
-      client_id: clientId,
-      client_secret: clientSecret,
-      grant_type: 'refresh_token'
-    });
+    const params = new URLSearchParams();
+    params.append('refresh_token', refreshToken);
+    params.append('client_id', clientId);
+    params.append('client_secret', clientSecret);
+    params.append('grant_type', 'refresh_token');
+
+    const response = await axios.post('https://accounts.zoho.com.au/oauth/v2/token', params);
 
     console.log('✅ SUCCESS! New access token generated\n');
     console.log('Response:');

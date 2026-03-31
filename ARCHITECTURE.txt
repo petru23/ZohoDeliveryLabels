@@ -1,4 +1,5 @@
-# System Architecture - Visual Diagram
+curl https://zoho-delivery-labels.vercel.app/api/health
+curl https://zoho-delivery-labels.vercel.app/api/generate-labels# System Architecture - Visual Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
