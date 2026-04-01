@@ -1092,6 +1092,7 @@ app.get('/sold-tag', async (req, res) => {
             font-weight: bold;
             text-align: center;
             margin-bottom: 20px;
+            color: #FF0000;
           }
           
           h1 {
@@ -1200,7 +1201,6 @@ app.get('/sold-tag', async (req, res) => {
         </button>
         
         <div class="tag">
-          <div class="take-photo">Take Photo</div>
           <div class="take-photo">Take Photo</div>
           
           <h1>SOLD</h1>
