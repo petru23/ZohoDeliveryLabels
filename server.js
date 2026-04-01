@@ -1026,39 +1026,57 @@ app.get('/sold-tag', async (req, res) => {
     // Extract data
     const suburb = invoice.shipping_address?.city || invoice.billing_address?.city || '';
     
-    // Get delivery date from invoice custom field
-    const deliveryDateField = invoice.cf_delivery_date || invoice.cf_delivery_date_unformatted || '';
+    // Get custom fields
+    const customFields = invoice.custom_fields || [];
+    
+    // DEBUG: Log custom fields
+    console.log(`\n=== INVOICE ${invoiceId} ===`);
+    console.log('Custom fields:', customFields.map(f => ({ label: f.label, value: f.value })));
+    
+    // Get delivery date from custom field "Delivery Pickup Date"
+    const deliveryDateField = customFields.find(f => 
+      f.label?.toLowerCase().includes('delivery') && f.label?.toLowerCase().includes('date')
+    )?.value || '';
+    
     let deliveryDate = '';
     if (deliveryDateField) {
-      // Parse delivery date (could be "20/03/2026" or "2026-03-20")
+      // Parse delivery date (could be "2026-04-02" or "02/04/2026")
       if (deliveryDateField.includes('-')) {
         // ISO format: YYYY-MM-DD
-        const dateStr = deliveryDateField.split('T')[0];
+        const dateStr = String(deliveryDateField).split('T')[0];
         const [year, month, day] = dateStr.split('-');
         deliveryDate = `${day}/${month}/${year}`;
       } else if (deliveryDateField.includes('/')) {
         // Already in DD/MM/YYYY format
-        deliveryDate = deliveryDateField;
+        deliveryDate = String(deliveryDateField);
+      } else {
+        // Try parsing as timestamp
+        const parsed = new Date(deliveryDateField);
+        if (!isNaN(parsed.getTime())) {
+          deliveryDate = format(parsed, 'dd/MM/yyyy');
+        }
       }
     }
     // Fallback to today's date if no delivery date found
     if (!deliveryDate) {
+      console.log('⚠️  No delivery date found, using today');
       deliveryDate = format(new Date(), 'dd/MM/yyyy');
+    } else {
+      console.log(`✓ Delivery date parsed: ${deliveryDate} (from: ${deliveryDateField})`);
     }
     
     // Get custom fields and convert true/false to YES/NO
-    const customFields = invoice.custom_fields || [];
     const getCustomField = (label) => {
       const field = customFields.find(f => 
         f.label?.toLowerCase().includes(label.toLowerCase())
       );
-      const value = field?.value || '';
+      const value = field?.value;
       
       // Convert boolean values to YES/NO
       if (value === true || value === 'true') return 'YES';
       if (value === false || value === 'false') return 'NO';
       
-      return value;
+      return value || '';
     };
     
     const removalRequired = getCustomField('removal');
