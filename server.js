@@ -806,6 +806,438 @@ app.get('/api/health', (req, res) => {
 });
 
 // ============================================================================
+// SOLD TAG FORM - Simple form for staff to enter invoice ID
+// ============================================================================
+
+app.get('/sold-tag-form', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>SOLD Tag Generator</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        * {
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+        }
+        
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+        }
+        
+        .container {
+          background: white;
+          border-radius: 20px;
+          box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+          max-width: 500px;
+          width: 100%;
+          padding: 40px;
+        }
+        
+        h1 {
+          font-size: 28px;
+          margin-bottom: 10px;
+          color: #1a202c;
+        }
+        
+        .subtitle {
+          color: #718096;
+          margin-bottom: 30px;
+          font-size: 14px;
+        }
+        
+        .form-group {
+          margin-bottom: 20px;
+        }
+        
+        label {
+          display: block;
+          font-weight: 600;
+          margin-bottom: 8px;
+          color: #2d3748;
+        }
+        
+        input {
+          width: 100%;
+          padding: 12px 16px;
+          border: 2px solid #e2e8f0;
+          border-radius: 8px;
+          font-size: 16px;
+          transition: border-color 0.2s;
+        }
+        
+        input:focus {
+          outline: none;
+          border-color: #667eea;
+        }
+        
+        .btn {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          border: none;
+          padding: 16px 32px;
+          border-radius: 12px;
+          font-size: 16px;
+          font-weight: 600;
+          cursor: pointer;
+          width: 100%;
+          transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:active {
+          transform: translateY(0);
+        }
+        
+        .help-text {
+          margin-top: 30px;
+          padding: 20px;
+          background: #f7fafc;
+          border-radius: 12px;
+          font-size: 14px;
+          color: #4a5568;
+          line-height: 1.6;
+        }
+        
+        .help-text strong {
+          color: #2d3748;
+          display: block;
+          margin-bottom: 8px;
+        }
+        
+        .example {
+          font-family: 'Courier New', monospace;
+          background: white;
+          padding: 8px;
+          border-radius: 4px;
+          margin-top: 8px;
+          color: #667eea;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>🏷️ SOLD Tag Generator</h1>
+        <p class="subtitle">Enter Zoho Books invoice ID to generate tag</p>
+        
+        <form onsubmit="generateTag(event)">
+          <div class="form-group">
+            <label for="invoiceId">Invoice ID</label>
+            <input 
+              type="text" 
+              id="invoiceId" 
+              name="invoiceId" 
+              placeholder="e.g., 987654321"
+              required
+              autofocus
+            >
+          </div>
+          
+          <button type="submit" class="btn">
+            Generate SOLD Tag
+          </button>
+        </form>
+        
+        <div class="help-text">
+          <strong>How to find Invoice ID:</strong>
+          1. Open invoice in Zoho Books<br>
+          2. Look at the URL in your browser<br>
+          3. Copy the last number from the URL
+          
+          <div class="example">
+            books.zoho.com/app/123/invoices/<strong>987654321</strong>
+          </div>
+        </div>
+      </div>
+      
+      <script>
+        function generateTag(event) {
+          event.preventDefault();
+          const invoiceId = document.getElementById('invoiceId').value.trim();
+          
+          if (invoiceId) {
+            // Open in new window
+            window.open('/sold-tag?invoice=' + invoiceId, '_blank');
+            
+            // Clear input for next use
+            document.getElementById('invoiceId').value = '';
+          }
+        }
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+// ============================================================================
+// End of SOLD TAG FORM code
+// ============================================================================
+
+// ============================================================================
+// SOLD TAG GENERATOR - Add this code to server.js
+// ============================================================================
+
+// Display SOLD tag in browser (ready to print)
+app.get('/sold-tag', async (req, res) => {
+  try {
+    const invoiceId = req.query.invoice;
+    
+    if (!invoiceId) {
+      return res.send(`
+        <html>
+          <body style="font-family: Arial; padding: 40px;">
+            <h2>❌ Missing Invoice ID</h2>
+            <p>Please open this from Zoho Books with an invoice ID</p>
+            <p><strong>Example:</strong> /sold-tag?invoice=123456789</p>
+          </body>
+        </html>
+      `);
+    }
+    
+    console.log(`Generating SOLD tag for invoice: ${invoiceId}`);
+    
+    // Get invoice details from Zoho
+    const invoice = await zohoBooks.getInvoiceDetails(invoiceId);
+    
+    if (!invoice) {
+      return res.status(404).send(`
+        <html>
+          <body style="font-family: Arial; padding: 40px;">
+            <h2>❌ Invoice not found</h2>
+            <p>Invoice ID: ${invoiceId}</p>
+            <p>Check your Zoho Books access token and invoice ID</p>
+          </body>
+        </html>
+      `);
+    }
+    
+    // Extract data
+    const suburb = invoice.shipping_address?.city || invoice.billing_address?.city || 'N/A';
+    const saleDate = format(new Date(), 'dd/MM/yyyy');
+    
+    // Get custom fields
+    const customFields = invoice.custom_fields || [];
+    const getCustomField = (label) => {
+      const field = customFields.find(f => 
+        f.label?.toLowerCase().includes(label.toLowerCase())
+      );
+      return field?.value || 'No';
+    };
+    
+    const removalRequired = getCustomField('removal');
+    const comboUnit = getCustomField('combo');
+    const stairsAccess = getCustomField('stairs');
+    
+    // Check if product is fridge/freezer
+    const lineItems = invoice.line_items || [];
+    const isFridge = lineItems.some(item => {
+      const name = (item.name || '').toLowerCase();
+      return name.includes('fridge') || 
+             name.includes('freezer') || 
+             name.includes('refrigerator');
+    });
+    
+    // Generate HTML page (print-ready)
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>SOLD Tag - ${invoice.invoice_number}</title>
+        <meta charset="UTF-8">
+        <style>
+          @page {
+            size: A5 landscape;
+            margin: 10mm;
+          }
+          
+          * {
+            box-sizing: border-box;
+          }
+          
+          body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #f5f5f5;
+          }
+          
+          .tag {
+            border: 5px solid black;
+            padding: 30px;
+            width: 100%;
+            max-width: 500px;
+            background: white;
+            page-break-after: always;
+          }
+          
+          h1 {
+            text-align: center;
+            font-size: 72pt;
+            margin: 0 0 30px 0;
+            font-weight: bold;
+            letter-spacing: 10px;
+          }
+          
+          .field {
+            font-size: 24pt;
+            font-weight: bold;
+            margin: 15px 0;
+            display: flex;
+            border-bottom: 2px solid #ccc;
+            padding-bottom: 10px;
+          }
+          
+          .field-label {
+            min-width: 280px;
+          }
+          
+          .field-value {
+            flex: 1;
+            font-weight: normal;
+          }
+          
+          .warning {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 3px solid black;
+            font-size: 16pt;
+            color: #d00;
+            line-height: 1.5;
+          }
+          
+          .warning strong {
+            display: block;
+            margin-bottom: 15px;
+            font-size: 18pt;
+          }
+          
+          @media print {
+            body {
+              margin: 0;
+              padding: 0;
+              background: white;
+            }
+            
+            .no-print {
+              display: none;
+            }
+            
+            .tag {
+              border: 5px solid black;
+              max-width: none;
+            }
+          }
+          
+          .print-button {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            z-index: 1000;
+          }
+          
+          .print-button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 8px rgba(0,0,0,0.15);
+          }
+          
+          .print-button:active {
+            transform: translateY(0);
+          }
+        </style>
+      </head>
+      <body>
+        <button class="print-button no-print" onclick="window.print()">
+          🖨️ Print Tag
+        </button>
+        
+        <div class="tag">
+          <h1>SOLD</h1>
+          
+          <div class="field">
+            <div class="field-label">SUBURB:</div>
+            <div class="field-value">${suburb}</div>
+          </div>
+          
+          <div class="field">
+            <div class="field-label">DATE:</div>
+            <div class="field-value">${saleDate}</div>
+          </div>
+          
+          <div class="field">
+            <div class="field-label">REMOVAL:</div>
+            <div class="field-value">${removalRequired}</div>
+          </div>
+          
+          <div class="field">
+            <div class="field-label">COMBO:</div>
+            <div class="field-value">${comboUnit}</div>
+          </div>
+          
+          <div class="field">
+            <div class="field-label">STAIRS:</div>
+            <div class="field-value">${stairsAccess}</div>
+          </div>
+          
+          ${isFridge ? `
+          <div class="warning">
+            <strong>⚠️ IMPORTANT FOR FRIDGES/FREEZERS:</strong>
+            • Please Leave Switched Off For 3-4 Hours After Transportation.<br><br>
+            • Please Use Surge Protection And Allow Up To 24 Hours To Reach 
+            Optimum Chilling Temperature Before Putting Food Inside.
+          </div>
+          ` : ''}
+        </div>
+      </body>
+      </html>
+    `;
+    
+    res.send(html);
+    
+  } catch (error) {
+    console.error('SOLD tag error:', error);
+    res.status(500).send(`
+      <html>
+        <body style="font-family: Arial; padding: 40px;">
+          <h2>❌ Error generating tag</h2>
+          <p><strong>Error:</strong> ${error.message}</p>
+          <p>Check server logs for details</p>
+        </body>
+      </html>
+    `);
+  }
+});
+
+// ============================================================================
+// End of SOLD TAG code
+// ============================================================================
+
+// ============================================================================
 // SERVER START
 // ============================================================================
 
