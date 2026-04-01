@@ -1025,15 +1025,40 @@ app.get('/sold-tag', async (req, res) => {
     
     // Extract data
     const suburb = invoice.shipping_address?.city || invoice.billing_address?.city || '';
-    const saleDate = format(new Date(), 'dd/MM/yyyy');
     
-    // Get custom fields
+    // Get delivery date from invoice custom field
+    const deliveryDateField = invoice.cf_delivery_date || invoice.cf_delivery_date_unformatted || '';
+    let deliveryDate = '';
+    if (deliveryDateField) {
+      // Parse delivery date (could be "20/03/2026" or "2026-03-20")
+      if (deliveryDateField.includes('-')) {
+        // ISO format: YYYY-MM-DD
+        const dateStr = deliveryDateField.split('T')[0];
+        const [year, month, day] = dateStr.split('-');
+        deliveryDate = `${day}/${month}/${year}`;
+      } else if (deliveryDateField.includes('/')) {
+        // Already in DD/MM/YYYY format
+        deliveryDate = deliveryDateField;
+      }
+    }
+    // Fallback to today's date if no delivery date found
+    if (!deliveryDate) {
+      deliveryDate = format(new Date(), 'dd/MM/yyyy');
+    }
+    
+    // Get custom fields and convert true/false to YES/NO
     const customFields = invoice.custom_fields || [];
     const getCustomField = (label) => {
       const field = customFields.find(f => 
         f.label?.toLowerCase().includes(label.toLowerCase())
       );
-      return field?.value || '';
+      const value = field?.value || '';
+      
+      // Convert boolean values to YES/NO
+      if (value === true || value === 'true') return 'YES';
+      if (value === false || value === 'false') return 'NO';
+      
+      return value;
     };
     
     const removalRequired = getCustomField('removal');
@@ -1079,7 +1104,7 @@ app.get('/sold-tag', async (req, res) => {
           }
           
           .tag {
-            border: 3px solid black;
+            border: 3px solid #FF0000;
             padding: 20px 30px;
             width: 100%;
             max-width: 500px;
@@ -1101,6 +1126,7 @@ app.get('/sold-tag', async (req, res) => {
             margin: 10px 0 30px 0;
             font-weight: bold;
             letter-spacing: 8px;
+            color: #FF0000;
           }
           
           .field {
@@ -1163,7 +1189,7 @@ app.get('/sold-tag', async (req, res) => {
             }
             
             .tag {
-              border: 3px solid black;
+              border: 3px solid #FF0000;
               max-width: none;
             }
           }
@@ -1215,7 +1241,7 @@ app.get('/sold-tag', async (req, res) => {
           <div class="field">
             <div class="field-label">DATE</div>
             <div class="field-line">
-              <div class="field-value">${saleDate}</div>
+              <div class="field-value">${deliveryDate}</div>
             </div>
           </div>
           
