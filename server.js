@@ -1024,7 +1024,7 @@ app.get('/sold-tag', async (req, res) => {
     }
     
     // Extract data
-    const suburb = invoice.shipping_address?.city || invoice.billing_address?.city || 'N/A';
+    const suburb = invoice.shipping_address?.city || invoice.billing_address?.city || '';
     const saleDate = format(new Date(), 'dd/MM/yyyy');
     
     // Get custom fields
@@ -1033,12 +1033,13 @@ app.get('/sold-tag', async (req, res) => {
       const field = customFields.find(f => 
         f.label?.toLowerCase().includes(label.toLowerCase())
       );
-      return field?.value || 'No';
+      return field?.value || '';
     };
     
     const removalRequired = getCustomField('removal');
     const comboUnit = getCustomField('combo');
     const stairsAccess = getCustomField('stairs');
+    const onlineOrder = getCustomField('online') || getCustomField('shopify') || '';
     
     // Check if product is fridge/freezer
     const lineItems = invoice.line_items || [];
@@ -1078,53 +1079,75 @@ app.get('/sold-tag', async (req, res) => {
           }
           
           .tag {
-            border: 5px solid black;
-            padding: 30px;
+            border: 3px solid black;
+            padding: 20px 30px;
             width: 100%;
             max-width: 500px;
             background: white;
             page-break-after: always;
           }
           
+          .take-photo {
+            font-size: 11pt;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 20px;
+          }
+          
           h1 {
             text-align: center;
-            font-size: 72pt;
-            margin: 0 0 30px 0;
+            font-size: 60pt;
+            margin: 10px 0 30px 0;
             font-weight: bold;
-            letter-spacing: 10px;
+            letter-spacing: 8px;
           }
           
           .field {
-            font-size: 24pt;
+            font-size: 18pt;
             font-weight: bold;
-            margin: 15px 0;
+            margin: 12px 0;
             display: flex;
-            border-bottom: 2px solid #ccc;
-            padding-bottom: 10px;
+            align-items: baseline;
           }
           
           .field-label {
-            min-width: 280px;
+            min-width: 180px;
+          }
+          
+          .field-line {
+            flex: 1;
+            border-bottom: 2px solid #000;
+            margin-left: 10px;
+            height: 20px;
+            position: relative;
           }
           
           .field-value {
-            flex: 1;
+            position: absolute;
+            left: 5px;
+            top: -5px;
             font-weight: normal;
+            font-size: 16pt;
           }
           
           .warning {
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 3px solid black;
-            font-size: 16pt;
-            color: #d00;
-            line-height: 1.5;
+            margin-top: 25px;
+            padding: 15px;
+            border: 2px solid #000;
+            font-size: 13pt;
+            line-height: 1.6;
+            text-align: left;
           }
           
-          .warning strong {
-            display: block;
-            margin-bottom: 15px;
-            font-size: 18pt;
+          .warning-title {
+            font-weight: bold;
+            font-size: 14pt;
+            margin-bottom: 10px;
+          }
+          
+          .highlight {
+            font-weight: bold;
+            text-decoration: underline;
           }
           
           @media print {
@@ -1139,7 +1162,7 @@ app.get('/sold-tag', async (req, res) => {
             }
             
             .tag {
-              border: 5px solid black;
+              border: 3px solid black;
               max-width: none;
             }
           }
@@ -1177,39 +1200,57 @@ app.get('/sold-tag', async (req, res) => {
         </button>
         
         <div class="tag">
+          <div class="take-photo">Take Photo</div>
+          <div class="take-photo">Take Photo</div>
+          
           <h1>SOLD</h1>
           
           <div class="field">
-            <div class="field-label">SUBURB:</div>
-            <div class="field-value">${suburb}</div>
+            <div class="field-label">SUBURB</div>
+            <div class="field-line">
+              <div class="field-value">${suburb}</div>
+            </div>
           </div>
           
           <div class="field">
-            <div class="field-label">DATE:</div>
-            <div class="field-value">${saleDate}</div>
+            <div class="field-label">DATE</div>
+            <div class="field-line">
+              <div class="field-value">${saleDate}</div>
+            </div>
           </div>
           
           <div class="field">
-            <div class="field-label">REMOVAL:</div>
-            <div class="field-value">${removalRequired}</div>
+            <div class="field-label">REMOVAL</div>
+            <div class="field-line">
+              <div class="field-value">${removalRequired}</div>
+            </div>
           </div>
           
           <div class="field">
-            <div class="field-label">COMBO:</div>
-            <div class="field-value">${comboUnit}</div>
+            <div class="field-label">COMBO</div>
+            <div class="field-line">
+              <div class="field-value">${comboUnit}</div>
+            </div>
           </div>
           
           <div class="field">
-            <div class="field-label">STAIRS:</div>
-            <div class="field-value">${stairsAccess}</div>
+            <div class="field-label">STAIRS</div>
+            <div class="field-line">
+              <div class="field-value">${stairsAccess}</div>
+            </div>
+          </div>
+          
+          <div class="field">
+            <div class="field-label">ONLINE ORDER</div>
+            <div class="field-line">
+              <div class="field-value">${onlineOrder}</div>
+            </div>
           </div>
           
           ${isFridge ? `
           <div class="warning">
-            <strong>⚠️ IMPORTANT FOR FRIDGES/FREEZERS:</strong>
-            • Please Leave Switched Off For 3-4 Hours After Transportation.<br><br>
-            • Please Use Surge Protection And Allow Up To 24 Hours To Reach 
-            Optimum Chilling Temperature Before Putting Food Inside.
+            <div>Please <span class="highlight">Leave Switched Off For 3-4 Hours After Transportation.</span></div>
+            <div style="margin-top: 10px;">Please Use <span class="highlight">Surge Protection</span> And <span class="highlight">Allow Up To 24 Hours</span> To Reach Optimum Chilling Temperature Before Putting Food Inside.</div>
           </div>
           ` : ''}
         </div>
