@@ -544,8 +544,12 @@ class DeliveryLabelGenerator {
       paymentKeywords.some(kw => text.toLowerCase().includes(kw));
 
     const noiseKeywords = [
-      'thanks again for choosing us', 'hope you enjoy',
-      'thank you for choosing', 'warranty information'
+      // Condition notes — driver doesn't act on these
+      'factory second', 'second hand', 'carton damaged', 'damaged',
+      'scratched', 'dented',
+      // Warranty fluff and marketing copy
+      'warranty', 'thanks again for choosing us', 'hope you enjoy',
+      'thank you for choosing'
     ];
     const isNoiseLine = (line) =>
       noiseKeywords.some(kw => line.toLowerCase().includes(kw));
