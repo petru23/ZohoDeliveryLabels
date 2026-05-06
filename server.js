@@ -567,34 +567,40 @@ class DeliveryLabelGenerator {
     let services = [];
     
     for (const item of invoiceItems) {
-      // Get full description (all lines, not just first line)
-      const fullDescription = (item.description || item.name || 'Item').trim();
-      const itemName = fullDescription.split('\n')[0]; // First line for checking type
-      
-      if (isAFee(itemName)) {
-        continue; // Skip fees
-      }
-      
-      // Check if it's a service (installation/install/instal or removal/remove)
-      const isService = /instal|remov/i.test(itemName);
-      
-      if (isService) {
-        services.push(compactBrand(itemName.trim()));
-      } else {
-        // Filter out lines with excluded keywords AND service keywords
-        const productLines = fullDescription.split('\n')
-          .map(line => line.trim())
-          .filter(line => {
-            if (line.length === 0) return false;
-            if (shouldExcludeLine(line)) return false; // Exclude warranty, damaged, etc
-            if (/instal|remov/i.test(line)) return false; // Exclude service lines
-            return true;
-          })
-          .map(compactBrand);
+      // Zoho splits item info inconsistently: sometimes the model lives in
+      // `name` and `description` only carries a condition note (e.g.
+      // "Factory Second"), sometimes the description holds the full
+      // multi-line model+notes block. Read both, dedupe, then filter.
+      const name = (item.name || '').trim();
+      const description = (item.description || '').trim();
 
-        if (productLines.length > 0) {
-          products.push(productLines.join('\n')); // Show remaining product lines only
-        }
+      if ((name && isAFee(name)) || (description && isAFee(description))) {
+        continue; // payment/fee line
+      }
+
+      const probe = name || description;
+      if (/instal|remov/i.test(probe)) {
+        services.push(compactBrand(probe));
+        continue;
+      }
+
+      const candidates = [name, ...description.split('\n')]
+        .map(l => l.trim())
+        .filter(Boolean);
+
+      const seen = new Set();
+      const productLines = [];
+      for (const line of candidates) {
+        const key = line.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (shouldExcludeLine(line)) continue;
+        if (/instal|remov/i.test(line)) continue;
+        productLines.push(compactBrand(line));
+      }
+
+      if (productLines.length > 0) {
+        products.push(productLines.join('\n'));
       }
     }
     
