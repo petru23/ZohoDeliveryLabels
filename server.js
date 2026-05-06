@@ -435,10 +435,10 @@ class DeliveryLabelGenerator {
     this.labelsPerPage = 14;
     
     // Excel sizing for Avery 5162:
-    // Each cell column: 23 chars ≈ 49mm (99.1mm ÷ 2 ≈ 49.5mm per label)
-    // Each row: 27 points ≈ 9.5mm height (for 4 rows per label = 38.1mm)
-    this.labelColumnWidth = 23;
-    this.labelRowHeight = 27;
+    // Each cell column: 48 chars ≈ 49mm (99.1mm ÷ 2 ≈ 49.5mm per label)
+    // Each row: 29 points ≈ 10.2mm height (for 4 rows per label = 38.1mm)
+    this.labelColumnWidth = 48;
+    this.labelRowHeight = 29;
   }
 
   async generateLabels(deliveries) {
