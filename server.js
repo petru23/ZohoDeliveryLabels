@@ -51,10 +51,17 @@ class CredentialsManager {
   }
 
   hasCompleteCredentials() {
-    return !!(this.credentials.organizationId && 
-              this.credentials.accessToken && 
-              this.credentials.clientId && 
-              this.credentials.clientSecret);
+    // Accept credentials from credentials.json OR env vars. On Vercel the
+    // file doesn't exist, but ZOHO_* env vars do — we should still report
+    // configured so the dashboard skips the setup form.
+    // A refresh token is sufficient on its own; the access token can be
+    // regenerated from it on cold start.
+    const orgId = this.credentials.organizationId || process.env.ZOHO_ORGANIZATION_ID;
+    const clientId = this.credentials.clientId || process.env.ZOHO_CLIENT_ID;
+    const clientSecret = this.credentials.clientSecret || process.env.ZOHO_CLIENT_SECRET;
+    const hasToken = this.credentials.refreshToken || process.env.ZOHO_REFRESH_TOKEN ||
+                     this.credentials.accessToken || process.env.ZOHO_ACCESS_TOKEN;
+    return !!(orgId && clientId && clientSecret && hasToken);
   }
 
   getAll() {
@@ -1406,7 +1413,7 @@ app.get('/api/setup/status', (req, res) => {
   res.json({
     configured: hasCredentials,
     credentials: hasCredentials ? {
-      organizationId: credentialsManager.credentials.organizationId,
+      organizationId: credentialsManager.credentials.organizationId || process.env.ZOHO_ORGANIZATION_ID,
     } : {}
   });
 });
