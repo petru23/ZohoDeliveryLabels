@@ -393,6 +393,36 @@ class ZohoBooksAPI {
 }
 
 // ============================================================================
+// SHARED ITEM HELPERS (used by labels and SOLD tags)
+// ============================================================================
+
+const PAYMENT_KEYWORDS = [
+  'tax fee', 'card fee', 'shopify fee', 'payment fee',
+  'transaction fee', 'merchant fee', 'processing fee',
+  'zip pay', 'zippay', 'zip money', 'zipmoney',
+  'afterpay', 'after pay', 'humm', 'klarna',
+  'paypal fee', 'stripe fee'
+];
+const isPaymentLine = (text) =>
+  PAYMENT_KEYWORDS.some(kw => text.toLowerCase().includes(kw));
+
+const isServiceLine = (text) => /instal|remov/i.test(text || '');
+
+// Compact common brand names so the line fits a 99mm label or a SOLD tag.
+const compactBrand = (line) =>
+  (line || '').replace(/Fisher\s*&\s*Paykel/gi, 'F&P');
+
+// Refrigeration product detection. Two signals — explicit keyword OR a
+// capacity in litres (washing machines use kg, ovens have wattage, so
+// litres is a strong fridge/freezer indicator).
+const FRIDGE_RE = /\b(fridge|freezer|refrigerator)\b/i;
+const LITRES_RE = /\b\d+(?:\.\d+)?\s*L(?:itres?)?\b/i;
+const isFridgeItem = (item) => {
+  const text = `${item.name || ''} ${item.description || ''}`;
+  return FRIDGE_RE.test(text) || LITRES_RE.test(text);
+};
+
+// ============================================================================
 // EXCEL LABEL GENERATOR
 // ============================================================================
 
@@ -529,19 +559,9 @@ class DeliveryLabelGenerator {
     console.log(`==========================================\n`);
     
     // Filter line items down to what the driver actually needs:
-    //   keep — product name/model, condition notes (Factory Second, damaged),
-    //          install/removal services
-    //   drop — payment fees and BNPL surcharges, marketing copy
+    //   keep — product name/model, install/removal as service tags
+    //   drop — payment fees, BNPL surcharges, condition notes, warranty/marketing
     const invoiceItems = delivery.invoice_items || [];
-    const paymentKeywords = [
-      'tax fee', 'card fee', 'shopify fee', 'payment fee',
-      'transaction fee', 'merchant fee', 'processing fee',
-      'zip pay', 'zippay', 'zip money', 'zipmoney',
-      'afterpay', 'after pay', 'humm', 'klarna',
-      'paypal fee', 'stripe fee'
-    ];
-    const isPaymentLine = (text) =>
-      paymentKeywords.some(kw => text.toLowerCase().includes(kw));
 
     const noiseKeywords = [
       // Condition notes — driver doesn't act on these
@@ -556,11 +576,7 @@ class DeliveryLabelGenerator {
     const isNoiseLine = (line) =>
       noiseKeywords.some(kw => line.toLowerCase().includes(kw));
 
-    const isAFee = isPaymentLine;
     const shouldExcludeLine = (line) => isPaymentLine(line) || isNoiseLine(line);
-
-    // Compact common brand names so the line fits a 99mm label.
-    const compactBrand = (line) => line.replace(/Fisher\s*&\s*Paykel/gi, 'F&P');
     
     // Get all products (not just first one) - show full product descriptions
     let products = [];
@@ -574,12 +590,12 @@ class DeliveryLabelGenerator {
       const name = (item.name || '').trim();
       const description = (item.description || '').trim();
 
-      if ((name && isAFee(name)) || (description && isAFee(description))) {
+      if ((name && isPaymentLine(name)) || (description && isPaymentLine(description))) {
         continue; // payment/fee line
       }
 
       const probe = name || description;
-      if (/instal|remov/i.test(probe)) {
+      if (isServiceLine(probe)) {
         services.push(compactBrand(probe));
         continue;
       }
@@ -595,7 +611,7 @@ class DeliveryLabelGenerator {
         if (seen.has(key)) continue;
         seen.add(key);
         if (shouldExcludeLine(line)) continue;
-        if (/instal|remov/i.test(line)) continue;
+        if (isServiceLine(line)) continue;
         productLines.push(compactBrand(line));
       }
 
@@ -1097,24 +1113,33 @@ app.get('/sold-tag', async (req, res) => {
     const stairsAccess = getCustomField('stairs');
     const onlineOrder = getCustomField('online') || getCustomField('shopify') || '';
     
-    // Decide whether this is refrigeration product, which gets the extra
-    // "Leave switched off for 3-4 hours" warning on the SOLD tag.
-    //
-    // Two signals, either is enough:
-    //   - explicit keyword (fridge/freezer/refrigerator)
-    //   - capacity expressed in litres (e.g. "538L", "326 L", "538 Litres")
-    //     — washing machines use kg, ovens have wattage, so litres is a
-    //     strong indicator of refrigeration product.
-    //
-    // We also look at both name and description because Zoho often puts
-    // the model code in `name` and only a one-word note in `description`.
+    // Build one SOLD tag per physical item. Skip payment fees and
+    // services (install/removal aren't things you stick a tag on).
+    // The fridge warning is decided per-item, so a mixed order with a
+    // fridge and a washer prints one fridge tag (with warning) and one
+    // normal tag (without).
     const items = invoice.invoice_items || invoice.line_items || [];
-    const FRIDGE_RE = /\b(fridge|freezer|refrigerator)\b/i;
-    const LITRES_RE = /\b\d+(?:\.\d+)?\s*L(?:itres?)?\b/i;
-    const isFridge = items.some(item => {
-      const text = `${item.name || ''} ${item.description || ''}`;
-      return FRIDGE_RE.test(text) || LITRES_RE.test(text);
-    });
+    const tagItems = [];
+    for (const item of items) {
+      const name = (item.name || '').trim();
+      const description = (item.description || '').trim();
+      if ((name && isPaymentLine(name)) || (description && isPaymentLine(description))) continue;
+      if (isServiceLine(name) || isServiceLine(description)) continue;
+
+      const displayName = compactBrand(name || description.split('\n')[0]);
+      if (!displayName) continue;
+
+      const fridge = isFridgeItem(item);
+      const qty = Math.max(1, parseInt(item.quantity, 10) || 1);
+      for (let i = 0; i < qty; i++) {
+        tagItems.push({ isFridge: fridge, displayName });
+      }
+    }
+    // Defensive fallback: if we couldn't identify any physical item, still
+    // print one blank tag so the user gets something rather than nothing.
+    if (tagItems.length === 0) {
+      tagItems.push({ isFridge: false, displayName: '' });
+    }
     
     // Generate HTML page (print-ready)
     const html = `
@@ -1157,10 +1182,19 @@ app.get('/sold-tag', async (req, res) => {
             font-size: 11pt;
             font-weight: bold;
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
             color: #FF0000;
           }
-          
+
+          .item-name {
+            font-size: 13pt;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 15px;
+            color: #1a202c;
+            word-break: break-word;
+          }
+
           h1 {
             text-align: center;
             font-size: 60pt;
@@ -1267,60 +1301,63 @@ app.get('/sold-tag', async (req, res) => {
           🖨️ Print Tag
         </button>
         
+        ${tagItems.map(t => `
         <div class="tag">
           <div class="take-photo">Take Photo</div>
-          
+          ${t.displayName ? `<div class="item-name">${t.displayName}</div>` : ''}
+
           <h1>SOLD</h1>
-          
+
           <div class="field">
             <div class="field-label">SUBURB</div>
             <div class="field-line">
               <div class="field-value">${suburb}</div>
             </div>
           </div>
-          
+
           <div class="field">
             <div class="field-label">DATE</div>
             <div class="field-line">
               <div class="field-value">${deliveryDate}</div>
             </div>
           </div>
-          
+
           <div class="field">
             <div class="field-label">REMOVAL</div>
             <div class="field-line">
               <div class="field-value">${removalRequired}</div>
             </div>
           </div>
-          
+
           <div class="field">
             <div class="field-label">COMBO</div>
             <div class="field-line">
               <div class="field-value">${comboUnit}</div>
             </div>
           </div>
-          
+
           <div class="field">
             <div class="field-label">STAIRS</div>
             <div class="field-line">
               <div class="field-value">${stairsAccess}</div>
             </div>
           </div>
-          
+
           <div class="field">
             <div class="field-label">ONLINE ORDER</div>
             <div class="field-line">
               <div class="field-value">${onlineOrder}</div>
             </div>
           </div>
-          
-          ${isFridge ? `
+
+          ${t.isFridge ? `
           <div class="warning">
             <div>Please <span class="highlight">Leave Switched Off For 3-4 Hours After Transportation.</span></div>
             <div style="margin-top: 10px;">Please Use <span class="highlight">Surge Protection</span> And <span class="highlight">Allow Up To 24 Hours</span> To Reach Optimum Chilling Temperature Before Putting Food Inside.</div>
           </div>
           ` : ''}
         </div>
+        `).join('')}
       </body>
       </html>
     `;
