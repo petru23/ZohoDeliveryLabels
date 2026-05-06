@@ -549,13 +549,18 @@ class DeliveryLabelGenerator {
       'scratched', 'dented',
       // Warranty fluff and marketing copy
       'warranty', 'thanks again for choosing us', 'hope you enjoy',
-      'thank you for choosing'
+      'thank you for choosing',
+      // Source tags Zoho appends — not product info
+      'shopify'
     ];
     const isNoiseLine = (line) =>
       noiseKeywords.some(kw => line.toLowerCase().includes(kw));
 
     const isAFee = isPaymentLine;
     const shouldExcludeLine = (line) => isPaymentLine(line) || isNoiseLine(line);
+
+    // Compact common brand names so the line fits a 99mm label.
+    const compactBrand = (line) => line.replace(/Fisher\s*&\s*Paykel/gi, 'F&P');
     
     // Get all products (not just first one) - show full product descriptions
     let products = [];
@@ -574,7 +579,7 @@ class DeliveryLabelGenerator {
       const isService = /instal|remov/i.test(itemName);
       
       if (isService) {
-        services.push(itemName.trim());
+        services.push(compactBrand(itemName.trim()));
       } else {
         // Filter out lines with excluded keywords AND service keywords
         const productLines = fullDescription.split('\n')
@@ -584,8 +589,9 @@ class DeliveryLabelGenerator {
             if (shouldExcludeLine(line)) return false; // Exclude warranty, damaged, etc
             if (/instal|remov/i.test(line)) return false; // Exclude service lines
             return true;
-          });
-        
+          })
+          .map(compactBrand);
+
         if (productLines.length > 0) {
           products.push(productLines.join('\n')); // Show remaining product lines only
         }
