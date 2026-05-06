@@ -11,24 +11,86 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // ============================================================================
+// CREDENTIAL STORAGE SYSTEM
+// ============================================================================
+// Stores user credentials in a local credentials.json file
+// Allows users to configure the app via web UI without editing .env
+
+class CredentialsManager {
+  constructor() {
+    this.credentialsFile = path.join(__dirname, 'credentials.json');
+    this.loadCredentials();
+  }
+
+  loadCredentials() {
+    try {
+      if (fs.existsSync(this.credentialsFile)) {
+        const data = fs.readFileSync(this.credentialsFile, 'utf8');
+        this.credentials = JSON.parse(data);
+        console.log('✓ Loaded credentials from file');
+      } else {
+        this.credentials = {};
+        console.log('ℹ️  No credentials file found. Setup required.');
+      }
+    } catch (error) {
+      console.error('Error loading credentials:', error.message);
+      this.credentials = {};
+    }
+  }
+
+  saveCredentials(creds) {
+    try {
+      this.credentials = creds;
+      fs.writeFileSync(this.credentialsFile, JSON.stringify(creds, null, 2));
+      console.log('✓ Credentials saved to file');
+      return true;
+    } catch (error) {
+      console.error('Error saving credentials:', error.message);
+      return false;
+    }
+  }
+
+  hasCompleteCredentials() {
+    return !!(this.credentials.organizationId && 
+              this.credentials.accessToken && 
+              this.credentials.clientId && 
+              this.credentials.clientSecret);
+  }
+
+  getAll() {
+    return this.credentials;
+  }
+}
+
+const credentialsManager = new CredentialsManager();
+
+// ============================================================================
 // ZOHO OAUTH TOKEN MANAGER
 // ============================================================================
 // Handles automatic token refresh every 50 minutes
 // See: https://www.zoho.com/billing/api/v1/oauth/
 
 class TokenManager {
-  constructor() {
-    this.organizationId = process.env.ZOHO_ORGANIZATION_ID;
-    this.clientId = process.env.ZOHO_CLIENT_ID;
-    this.clientSecret = process.env.ZOHO_CLIENT_SECRET;
-    this.refreshToken = process.env.ZOHO_REFRESH_TOKEN || null;
-    this.accessToken = process.env.ZOHO_ACCESS_TOKEN;
+  constructor(credsManager) {
+    // Get credentials from credentials.json file OR .env (file takes priority)
+    const creds = credsManager.getAll();
+    
+    this.organizationId = creds.organizationId || process.env.ZOHO_ORGANIZATION_ID;
+    this.clientId = creds.clientId || process.env.ZOHO_CLIENT_ID;
+    this.clientSecret = creds.clientSecret || process.env.ZOHO_CLIENT_SECRET;
+    this.refreshToken = creds.refreshToken || process.env.ZOHO_REFRESH_TOKEN || null;
+    this.accessToken = creds.accessToken || process.env.ZOHO_ACCESS_TOKEN;
     this.tokenExpiresAt = null;
     this.authBaseUrl = 'https://accounts.zoho.com.au/oauth/v2/token';
     this.refreshInterval = null;
+    this.credsManager = credsManager;
     
-    // Start automatic refresh
-    this.startAutoRefresh();
+    // Background interval only on long-running hosts. On Vercel the process
+    // is shut down between requests, so refresh is driven per-request via
+    // ensureValidToken() instead.
+    if (!process.env.VERCEL && this.refreshToken && this.clientId && this.clientSecret) {
+      this.startAutoRefresh();
+    }
   }
 
   // Initialize refresh token from current access token (one-time setup)
@@ -70,14 +132,19 @@ class TokenManager {
 
       const response = await axios.post(this.authBaseUrl, params);
 
+      // Zoho's refresh grant returns only access_token + expires_in.
+      // The refresh token is long-lived and is NOT rotated — never overwrite it.
       this.accessToken = response.data.access_token;
-      this.refreshToken = response.data.refresh_token; // Update refresh token (rotates on each refresh)
       this.tokenExpiresAt = Date.now() + (response.data.expires_in * 1000);
-      
-      // Update environment variable for reference
       process.env.ZOHO_ACCESS_TOKEN = this.accessToken;
-      process.env.ZOHO_REFRESH_TOKEN = this.refreshToken;
-      
+
+      // credentials.json only persists on writable filesystems (local, not Vercel /tmp).
+      if (!process.env.VERCEL) {
+        const creds = this.credsManager.getAll();
+        creds.accessToken = this.accessToken;
+        this.credsManager.saveCredentials(creds);
+      }
+
       console.log(`✓ Access token refreshed. Expires in ${response.data.expires_in} seconds`);
       return true;
     } catch (error) {
@@ -108,13 +175,20 @@ class TokenManager {
 
   // Check if token needs refresh (called before each API request)
   async ensureValidToken() {
-    const now = Date.now();
-    const timeUntilExpiry = this.tokenExpiresAt - now;
-    
-    // If token expires in less than 5 minutes, refresh now
+    if (!this.refreshToken) return;
+
     const REFRESH_THRESHOLD = 5 * 60 * 1000; // 5 minutes
-    
-    if (this.tokenExpiresAt && timeUntilExpiry < REFRESH_THRESHOLD) {
+
+    // Cold start: no expiry tracked yet. The access token from env may be
+    // hours old, so refresh proactively rather than risk a 401.
+    if (!this.tokenExpiresAt) {
+      console.log('🔄 No token expiry tracked yet — refreshing on cold start');
+      await this.refreshAccessToken();
+      return;
+    }
+
+    const timeUntilExpiry = this.tokenExpiresAt - Date.now();
+    if (timeUntilExpiry < REFRESH_THRESHOLD) {
       console.log(`⏰ Token expiring soon (${Math.round(timeUntilExpiry / 1000)}s left). Refreshing...`);
       await this.refreshAccessToken();
     }
@@ -130,8 +204,8 @@ class TokenManager {
   }
 }
 
-// Initialize token manager
-const tokenManager = new TokenManager();
+// Initialize token manager with credentials manager
+const tokenManager = new TokenManager(credentialsManager);
 
 // ============================================================================
 // ZOHO BOOKS API CLIENT
@@ -1321,6 +1395,80 @@ app.get('/sold-tag', async (req, res) => {
 // ============================================================================
 // End of SOLD TAG code
 // ============================================================================
+
+// ============================================================================
+// SETUP API ENDPOINTS
+// ============================================================================
+
+// Check if credentials are configured
+app.get('/api/setup/status', (req, res) => {
+  const hasCredentials = credentialsManager.hasCompleteCredentials();
+  res.json({
+    configured: hasCredentials,
+    credentials: hasCredentials ? {
+      organizationId: credentialsManager.credentials.organizationId,
+    } : {}
+  });
+});
+
+// Save credentials from setup form
+app.post('/api/setup/save', (req, res) => {
+  try {
+    const { organizationId, accessToken, clientId, clientSecret, refreshToken } = req.body;
+
+    if (!organizationId || !accessToken || !clientId || !clientSecret) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required credentials. Please fill in all fields.'
+      });
+    }
+
+    // Save credentials
+    const newCreds = {
+      organizationId,
+      accessToken,
+      clientId,
+      clientSecret,
+      refreshToken: refreshToken || null
+    };
+
+    const saved = credentialsManager.saveCredentials(newCreds);
+
+    if (saved) {
+      // Update token manager with new credentials
+      tokenManager.organizationId = organizationId;
+      tokenManager.accessToken = accessToken;
+      tokenManager.clientId = clientId;
+      tokenManager.clientSecret = clientSecret;
+      tokenManager.refreshToken = refreshToken || null;
+
+      // Restart auto-refresh with new credentials
+      if (tokenManager.refreshInterval) {
+        clearInterval(tokenManager.refreshInterval);
+      }
+      if (accessToken && clientId && clientSecret) {
+        tokenManager.startAutoRefresh();
+      }
+
+      console.log('✓ Credentials updated and saved');
+      return res.json({
+        success: true,
+        message: 'Credentials saved successfully! Auto-refresh enabled.'
+      });
+    } else {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to save credentials'
+      });
+    }
+  } catch (error) {
+    console.error('Setup error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Error saving credentials'
+    });
+  }
+});
 
 // ============================================================================
 // SERVER START

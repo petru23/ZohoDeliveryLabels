@@ -186,36 +186,326 @@
       color: #a0aec0;
       font-size: 12px;
     }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: #2d3748;
+      font-size: 14px;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: 'Courier New', monospace;
+      transition: border-color 0.2s;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .form-group input::placeholder {
+      color: #a0aec0;
+    }
+
+    .form-hint {
+      font-size: 12px;
+      color: #718096;
+      margin-top: 4px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .setup-section {
+      display: none;
+    }
+
+    .dashboard-section {
+      display: none;
+    }
+
+    .setup-section.active {
+      display: block;
+    }
+
+    .dashboard-section.active {
+      display: block;
+    }
+
+    .setup-title {
+      font-size: 24px;
+      margin-bottom: 10px;
+      color: #1a202c;
+    }
+
+    .setup-subtitle {
+      color: #718096;
+      margin-bottom: 30px;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .divider {
+      border: none;
+      height: 1px;
+      background: #e2e8f0;
+      margin: 30px 0;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>📦 Delivery Labels</h1>
-    <p class="subtitle">Click when ready - generates labels for tomorrow's deliveries</p>
+    <!-- SETUP SECTION -->
+    <div id="setupSection" class="setup-section">
+      <h1 class="setup-title">🔧 Initial Setup</h1>
+      <p class="setup-subtitle">
+        Connect your Zoho Books account. You can find these credentials in your
+        <a href="https://api-console.zoho.com.au/" target="_blank" style="color: #667eea;">Zoho API Console</a>.
+      </p>
 
-    <div class="status-card">
-      <h3>Manual Control</h3>
-      <div class="value" id="deliveryCount">Click to generate</div>
+      <form onsubmit="saveCredentials(event)">
+        <div class="form-group">
+          <label>Organization ID *</label>
+          <input 
+            type="text" 
+            id="organizationId" 
+            placeholder="e.g., 1234567890"
+            readonly
+            style="background: #f7fafc; color: #718096;"
+            required
+          />
+          <div class="form-hint">🔒 From: Zoho Books Settings → Organization Profile</div>
+        </div>
+
+        <div class="form-group">
+          <label>Access Token *</label>
+          <input 
+            type="password" 
+            id="accessToken" 
+            placeholder="1000.abcd1234efgh5678..."
+            required
+          />
+          <div class="form-hint">From Zoho OAuth (see token documentation)</div>
+        </div>
+
+        <div class="form-group">
+          <label>Client ID *</label>
+          <input 
+            type="password" 
+            id="clientId" 
+            placeholder="1000.xxxxxxxxxxxxx"
+            required
+          />
+          <div class="form-hint">From: Zoho API Console → Your App Details</div>
+        </div>
+
+        <div class="form-group">
+          <label>Client Secret *</label>
+          <input 
+            type="password" 
+            id="clientSecret" 
+            placeholder="xxxxxxxxxxxxxxxx..."
+            required
+          />
+          <div class="form-hint">From: Zoho API Console → Your App Details</div>
+        </div>
+
+        <div class="form-group">
+          <label>Refresh Token (Optional)</label>
+          <input 
+            type="password" 
+            id="refreshToken" 
+            placeholder="1000.xxxxxxxxxxxxxxxx..."
+          />
+          <div class="form-hint">
+            Enables automatic token refresh every 50 minutes (recommended for production)
+          </div>
+        </div>
+
+        <div id="setupMessage" class="message"></div>
+
+        <button type="submit" class="btn">
+          <span id="setupBtnText">Save Credentials & Connect</span>
+          <div class="spinner" id="setupSpinner" style="display: none;"></div>
+        </button>
+
+        <p style="text-align: center; color: #a0aec0; font-size: 12px; margin-top: 20px;">
+          Your credentials are encrypted and stored locally.
+        </p>
+      </form>
     </div>
 
-    <div id="message" class="message"></div>
+    <!-- DASHBOARD SECTION -->
+    <div id="dashboardSection" class="dashboard-section">
+      <h1>📦 Delivery Labels</h1>
+      <p class="subtitle">Click when ready - generates labels for tomorrow's deliveries</p>
 
-    <button class="btn" id="generateBtn" onclick="generateLabels()">
-      <span id="btnText">Generate Labels for Tomorrow</span>
-      <div class="spinner" id="spinner"></div>
-    </button>
+      <div class="status-card">
+        <h3>Manual Control</h3>
+        <div class="value" id="deliveryCount">Click to generate</div>
+      </div>
 
-    <div class="files-list" id="filesList" style="display: none;">
-      <h2>Recent Files</h2>
-      <div id="filesContainer"></div>
-    </div>
+      <div id="message" class="message"></div>
 
-    <div class="footer">
-      Connected to Zoho Books • Filename = Tomorrow's Date • Click only when ready to print
+      <button class="btn" id="generateBtn" onclick="generateLabels()">
+        <span id="btnText">Generate Labels for Tomorrow</span>
+        <div class="spinner" id="spinner"></div>
+      </button>
+
+      <div class="files-list" id="filesList" style="display: none;">
+        <h2>Recent Files</h2>
+        <div id="filesContainer"></div>
+      </div>
+
+      <div style="text-align: right; margin-top: 20px;">
+        <button onclick="resetSetup()" style="
+          background: none;
+          color: #a0aec0;
+          border: none;
+          cursor: pointer;
+          font-size: 12px;
+          text-decoration: underline;
+        ">
+          Change Credentials
+        </button>
+      </div>
+
+      <div class="footer">
+        Connected to Zoho Books • Filename = Tomorrow's Date • Click only when ready to print
+      </div>
     </div>
   </div>
 
   <script>
+    // Check setup status on page load
+    async function checkSetupStatus() {
+      try {
+        const response = await fetch('/api/setup/status');
+        const data = await response.json();
+
+        const setupSection = document.getElementById('setupSection');
+        const dashboardSection = document.getElementById('dashboardSection');
+
+        if (data.configured) {
+          // Credentials exist - show dashboard
+          setupSection.classList.remove('active');
+          dashboardSection.classList.add('active');
+          loadRecentFiles();
+        } else {
+          // No credentials - show setup form
+          setupSection.classList.add('active');
+          dashboardSection.classList.remove('active');
+        }
+      } catch (error) {
+        console.error('Failed to check setup status:', error);
+      }
+    }
+
+    // Save credentials from setup form
+    async function saveCredentials(event) {
+      event.preventDefault();
+
+      const btn = document.querySelector('button[type="submit"]');
+      const btnText = document.getElementById('setupBtnText');
+      const spinner = document.getElementById('setupSpinner');
+      const message = document.getElementById('setupMessage');
+
+      // Validate
+      const organizationId = document.getElementById('organizationId').value;
+      const accessToken = document.getElementById('accessToken').value;
+      const clientId = document.getElementById('clientId').value;
+      const clientSecret = document.getElementById('clientSecret').value;
+      const refreshToken = document.getElementById('refreshToken').value;
+
+      if (!accessToken || !clientId || !clientSecret) {
+        message.className = 'message error show';
+        message.textContent = '✗ Please fill in all required fields';
+        return;
+      }
+
+      btn.disabled = true;
+      btnText.style.display = 'none';
+      spinner.style.display = 'block';
+
+      try {
+        // First, get organization ID from Zoho if not set
+        let finalOrgId = organizationId;
+        if (!organizationId || organizationId === '') {
+          // Try to fetch organization ID from Zoho using the access token
+          const orgResponse = await fetch('https://www.zohoapis.com.au/books/v3/organizations', {
+            headers: {
+              'Authorization': `Zoho-oauthtoken ${accessToken}`
+            }
+          });
+          
+          if (orgResponse.ok) {
+            const orgData = await orgResponse.json();
+            if (orgData.organizations && orgData.organizations.length > 0) {
+              finalOrgId = orgData.organizations[0].organization_id;
+              document.getElementById('organizationId').value = finalOrgId;
+            }
+          }
+        }
+
+        const response = await fetch('/api/setup/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            organizationId: finalOrgId || organizationId,
+            accessToken,
+            clientId,
+            clientSecret,
+            refreshToken
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          message.className = 'message success show';
+          message.textContent = '✓ ' + data.message;
+          
+          // Wait a moment then switch to dashboard
+          await new Promise(r => setTimeout(r, 1000));
+          checkSetupStatus();
+        } else {
+          throw new Error(data.message);
+        }
+      } catch (error) {
+        message.className = 'message error show';
+        message.textContent = `✗ Error: ${error.message}`;
+      } finally {
+        btn.disabled = false;
+        btnText.style.display = 'inline';
+        spinner.style.display = 'none';
+      }
+    }
+
+    // Reset setup to show form again
+    function resetSetup() {
+      if (confirm('Change credentials? You\'ll need to re-enter your Zoho API details.')) {
+        const setupSection = document.getElementById('setupSection');
+        const dashboardSection = document.getElementById('dashboardSection');
+        setupSection.classList.add('active');
+        dashboardSection.classList.remove('active');
+        
+        // Clear form
+        document.getElementById('accessToken').value = '';
+        document.getElementById('clientId').value = '';
+        document.getElementById('clientSecret').value = '';
+        document.getElementById('refreshToken').value = '';
+      }
+    }
+
     let isGenerating = false;
 
     async function generateLabels() {
@@ -288,8 +578,8 @@
       }
     }
 
-    // Load files on page load
-    loadRecentFiles();
+    // Check setup status when page loads
+    checkSetupStatus();
   </script>
 </body>
 </html>
