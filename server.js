@@ -522,6 +522,7 @@ class DeliveryLabelGenerator {
       formatAddress(delivery.billing_address) ||
       formatAddress(delivery.customer_shipping_address) ||
       formatAddress(delivery.customer_billing_address) ||
+      delivery.customer_billing_address?.attention ||
       delivery.billing_address?.attention ||
       '';
     
