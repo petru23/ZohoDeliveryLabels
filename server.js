@@ -1097,13 +1097,23 @@ app.get('/sold-tag', async (req, res) => {
     const stairsAccess = getCustomField('stairs');
     const onlineOrder = getCustomField('online') || getCustomField('shopify') || '';
     
-    // Check if product is fridge/freezer
-    const lineItems = invoice.line_items || [];
-    const isFridge = lineItems.some(item => {
-      const name = (item.name || '').toLowerCase();
-      return name.includes('fridge') || 
-             name.includes('freezer') || 
-             name.includes('refrigerator');
+    // Decide whether this is refrigeration product, which gets the extra
+    // "Leave switched off for 3-4 hours" warning on the SOLD tag.
+    //
+    // Two signals, either is enough:
+    //   - explicit keyword (fridge/freezer/refrigerator)
+    //   - capacity expressed in litres (e.g. "538L", "326 L", "538 Litres")
+    //     — washing machines use kg, ovens have wattage, so litres is a
+    //     strong indicator of refrigeration product.
+    //
+    // We also look at both name and description because Zoho often puts
+    // the model code in `name` and only a one-word note in `description`.
+    const items = invoice.invoice_items || invoice.line_items || [];
+    const FRIDGE_RE = /\b(fridge|freezer|refrigerator)\b/i;
+    const LITRES_RE = /\b\d+(?:\.\d+)?\s*L(?:itres?)?\b/i;
+    const isFridge = items.some(item => {
+      const text = `${item.name || ''} ${item.description || ''}`;
+      return FRIDGE_RE.test(text) || LITRES_RE.test(text);
     });
     
     // Generate HTML page (print-ready)
