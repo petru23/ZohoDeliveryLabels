@@ -525,25 +525,35 @@
 
       try {
         const response = await fetch('/api/generate-labels');
-        const data = await response.json();
+        const contentType = response.headers.get('content-type') || '';
 
-        if (data.success) {
-          // Success message with filename
-          message.className = 'message success show';
-          message.textContent = `✓ Generated: ${data.filename} (${data.count} deliveries) - Downloading...`;
-
-          // Update count
-          document.getElementById('deliveryCount').textContent = `Last: ${data.count} labels`;
-
-          // Auto-download the file
-          if (data.downloadUrl) {
-            window.location.href = data.downloadUrl;
+        if (contentType.includes('application/json')) {
+          // No deliveries / error path
+          const data = await response.json();
+          if (!response.ok || data.success === false) {
+            throw new Error(data.error || data.message || 'Unknown error');
           }
-
-          // Refresh file list
-          loadRecentFiles();
+          message.className = 'message success show';
+          message.textContent = data.message || 'No deliveries to generate.';
+          document.getElementById('deliveryCount').textContent = `Last: ${data.count || 0} labels`;
         } else {
-          throw new Error(data.error || 'Unknown error');
+          // Binary .xlsx — count comes from custom header, file from body
+          const count = response.headers.get('x-delivery-count') || '?';
+          const filename = response.headers.get('x-delivery-filename') || 'labels.xlsx';
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+
+          message.className = 'message success show';
+          message.textContent = `✓ Generated: ${filename} (${count} deliveries) - Downloading...`;
+          document.getElementById('deliveryCount').textContent = `Last: ${count} labels`;
+          loadRecentFiles();
         }
       } catch (error) {
         message.className = 'message error show';

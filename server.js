@@ -455,18 +455,20 @@ class DeliveryLabelGenerator {
     // Generate filename as tomorrow's date (YYYY-MM-DD.xlsx)
     const tomorrow = addDays(new Date(), 1);
     const filename = `${format(tomorrow, 'yyyy-MM-dd')}.xlsx`;
-    
-    // Vercel uses /tmp for temporary files (serverless environment)
-    const outputDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, 'output');
-    const filepath = path.join(outputDir, filename);
 
-    // Ensure output directory exists (local only)
-    if (!process.env.VERCEL && !fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir);
+    // Generate in memory. On Vercel, files in /tmp don't survive across
+    // invocations, so a separate /download/:filename request can't see
+    // them — we stream the buffer back in the same response instead.
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    // Mirror to ./output locally so the file list and dev tooling keep working.
+    if (!process.env.VERCEL) {
+      const outputDir = path.join(__dirname, 'output');
+      if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
+      fs.writeFileSync(path.join(outputDir, filename), buffer);
     }
 
-    await workbook.xlsx.writeFile(filepath);
-    return { filename, filepath };
+    return { filename, buffer };
   }
 
   createLabel(worksheet, delivery, startRow, startCol) {
@@ -701,54 +703,41 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Stream the .xlsx directly so the file never has to survive between
+// invocations on Vercel. Empty days return JSON; the dashboard branches
+// on Content-Type.
+async function streamLabels(res, deliveries, downloadFilename, emptyMessage) {
+  if (deliveries.length === 0) {
+    return res.json({ success: true, message: emptyMessage, count: 0 });
+  }
+
+  const detailed = (await Promise.all(
+    deliveries.map(inv => zohoBooks.getInvoiceDetails(inv.invoice_id))
+  )).filter(d => d !== null);
+  const enriched = await zohoBooks.enrichDeliveriesWithCustomerData(detailed);
+
+  const { buffer } = await labelGenerator.generateLabels(enriched);
+
+  res.set({
+    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'Content-Disposition': `attachment; filename="${downloadFilename}"`,
+    'X-Delivery-Count': String(enriched.length),
+    'X-Delivery-Filename': downloadFilename,
+    'Access-Control-Expose-Headers': 'X-Delivery-Count, X-Delivery-Filename',
+  });
+  res.send(Buffer.from(buffer));
+}
+
 // Generate labels endpoint (for TOMORROW by default)
 app.get('/api/generate-labels', async (req, res) => {
   try {
     console.log('Fetching tomorrow\'s deliveries from Zoho Books...');
-    
-    // Get invoices scheduled for tomorrow
     const invoices = await zohoBooks.getTomorrowDeliveries();
-    
-    if (invoices.length === 0) {
-      return res.json({
-        success: true,
-        message: 'No deliveries scheduled for tomorrow',
-        count: 0
-      });
-    }
-
-    console.log(`Found ${invoices.length} deliveries. Generating labels...`);
-    
-    // Get detailed data for each invoice
-    const detailedDeliveries = await Promise.all(
-      invoices.map(inv => zohoBooks.getInvoiceDetails(inv.invoice_id))
-    );
-
-    // Filter out any failed fetches
-    const validDeliveries = detailedDeliveries.filter(d => d !== null);
-
-    // Enrich with customer data if address/phone is missing
-    const enrichedDeliveries = await zohoBooks.enrichDeliveriesWithCustomerData(validDeliveries);
-
-    // Generate Excel file
-    const tomorrow = addDays(new Date(), 1);
-    const filename = `${format(tomorrow, 'yyyy-MM-dd')}.xlsx`;
-    const result = await labelGenerator.generateLabels(enrichedDeliveries);
-
-    res.json({
-      success: true,
-      message: `Generated labels for ${enrichedDeliveries.length} deliveries (tomorrow)`,
-      count: enrichedDeliveries.length,
-      filename: result.filename,
-      downloadUrl: `/download/${result.filename}`
-    });
-
+    const filename = `${format(addDays(new Date(), 1), 'yyyy-MM-dd')}.xlsx`;
+    await streamLabels(res, invoices, filename, 'No deliveries scheduled for tomorrow');
   } catch (error) {
     console.error('Label generation error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -756,60 +745,12 @@ app.get('/api/generate-labels', async (req, res) => {
 app.get('/api/generate-labels-today', async (req, res) => {
   try {
     console.log('Fetching today\'s deliveries from Zoho Books...');
-    
-    // Get invoices scheduled for today
     const invoices = await zohoBooks.getTodayDeliveries();
-    
-    if (invoices.length === 0) {
-      return res.json({
-        success: true,
-        message: 'No deliveries scheduled for today',
-        count: 0
-      });
-    }
-
-    console.log(`Found ${invoices.length} deliveries. Generating labels...`);
-    
-    // Get detailed data for each invoice
-    const detailedDeliveries = await Promise.all(
-      invoices.map(inv => zohoBooks.getInvoiceDetails(inv.invoice_id))
-    );
-
-    // Filter out any failed fetches
-    const validDeliveries = detailedDeliveries.filter(d => d !== null);
-
-    // Enrich with customer data if address/phone is missing
-    const enrichedDeliveries = await zohoBooks.enrichDeliveriesWithCustomerData(validDeliveries);
-
-    // Generate Excel file using the label generator
-    const result = await labelGenerator.generateLabels(enrichedDeliveries);
-    
-    // Rename the file to indicate it's today (the generator uses tomorrow's date)
-    const today = new Date();
-    const todayFilename = `${format(today, 'yyyy-MM-dd')}-deliveries.xlsx`;
-    const outputDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, 'output');
-    const oldPath = result.filepath;
-    const newPath = path.join(outputDir, todayFilename);
-    
-    // Rename the generated file (only if it has tomorrow's date in the name)
-    if (oldPath.includes(format(addDays(new Date(), 1), 'yyyy-MM-dd'))) {
-      fs.renameSync(oldPath, newPath);
-    }
-
-    res.json({
-      success: true,
-      message: `Generated labels for ${validDeliveries.length} deliveries (today)`,
-      count: validDeliveries.length,
-      filename: todayFilename,
-      downloadUrl: `/download/${todayFilename}`
-    });
-
+    const filename = `${format(new Date(), 'yyyy-MM-dd')}-deliveries.xlsx`;
+    await streamLabels(res, invoices, filename, 'No deliveries scheduled for today');
   } catch (error) {
     console.error('Label generation error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
