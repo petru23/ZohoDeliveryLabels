@@ -338,9 +338,11 @@ class ZohoBooksAPI {
     const enrichedDeliveries = [];
     
     for (const delivery of deliveries) {
-      // Check if address is missing from invoice
-      const hasShippingAddress = delivery.shipping_address?.street || delivery.shipping_address?.city;
-      const hasBillingAddress = delivery.billing_address?.street || delivery.billing_address?.city;
+      // A street is required to consider an address "present" — city/state
+      // alone are useless to a delivery driver, so we still need to fall
+      // through to the customer record.
+      const hasShippingAddress = !!delivery.shipping_address?.street;
+      const hasBillingAddress = !!delivery.billing_address?.street;
       const hasPhone = delivery.shipping_address?.phone || 
                        delivery.billing_address?.phone || 
                        delivery.contactpersons?.[0]?.mobile ||
@@ -475,66 +477,23 @@ class DeliveryLabelGenerator {
     // Extract customer and address info
     const customerName = delivery.customer_name || 'CUSTOMER NAME MISSING';
     
-    // Address extraction with fallback chain:
-    // 1. Invoice shipping address
-    // 2. Invoice billing address  
-    // 3. Customer shipping address (from enrichment)
-    // 4. Customer billing address (from enrichment)
-    // 5. Attention field
-    let address = '';
-    
-    // First try invoice shipping address
-    if (delivery.shipping_address) {
-      let parts = [];
-      if (delivery.shipping_address.street) parts.push(delivery.shipping_address.street);
-      if (delivery.shipping_address.street2) parts.push(delivery.shipping_address.street2);
-      if (delivery.shipping_address.city) parts.push(delivery.shipping_address.city);
-      if (delivery.shipping_address.state) parts.push(delivery.shipping_address.state);
-      if (parts.length > 0) {
-        address = parts.join(', ');
-      }
-    }
-    
-    // Fall back to invoice billing address
-    if (!address && delivery.billing_address) {
-      let parts = [];
-      if (delivery.billing_address.street) parts.push(delivery.billing_address.street);
-      if (delivery.billing_address.street2) parts.push(delivery.billing_address.street2);
-      if (delivery.billing_address.city) parts.push(delivery.billing_address.city);
-      if (delivery.billing_address.state) parts.push(delivery.billing_address.state);
-      if (parts.length > 0) {
-        address = parts.join(', ');
-      }
-    }
-    
-    // Fall back to customer shipping address (from customer record)
-    if (!address && delivery.customer_shipping_address) {
-      let parts = [];
-      if (delivery.customer_shipping_address.street) parts.push(delivery.customer_shipping_address.street);
-      if (delivery.customer_shipping_address.street2) parts.push(delivery.customer_shipping_address.street2);
-      if (delivery.customer_shipping_address.city) parts.push(delivery.customer_shipping_address.city);
-      if (delivery.customer_shipping_address.state) parts.push(delivery.customer_shipping_address.state);
-      if (parts.length > 0) {
-        address = parts.join(', ');
-      }
-    }
-    
-    // Fall back to customer billing address (from customer record)
-    if (!address && delivery.customer_billing_address) {
-      let parts = [];
-      if (delivery.customer_billing_address.street) parts.push(delivery.customer_billing_address.street);
-      if (delivery.customer_billing_address.street2) parts.push(delivery.customer_billing_address.street2);
-      if (delivery.customer_billing_address.city) parts.push(delivery.customer_billing_address.city);
-      if (delivery.customer_billing_address.state) parts.push(delivery.customer_billing_address.state);
-      if (parts.length > 0) {
-        address = parts.join(', ');
-      }
-    }
-    
-    // Try attention field as last resort
-    if (!address && delivery.billing_address?.attention) {
-      address = delivery.billing_address.attention;
-    }
+    // Address extraction. An entry is only usable if it has a street —
+    // city/state alone don't help the driver, so we keep falling through
+    // until we find a record with a real street line.
+    const formatAddress = (addr) => {
+      if (!addr || !addr.street) return null;
+      return [addr.street, addr.street2, addr.city, addr.state]
+        .filter(Boolean)
+        .join(', ');
+    };
+
+    const address =
+      formatAddress(delivery.shipping_address) ||
+      formatAddress(delivery.billing_address) ||
+      formatAddress(delivery.customer_shipping_address) ||
+      formatAddress(delivery.customer_billing_address) ||
+      delivery.billing_address?.attention ||
+      '';
     
     // Phone extraction with fallback chain
     let phone = delivery.shipping_address?.phone || 
@@ -569,14 +528,30 @@ class DeliveryLabelGenerator {
     });
     console.log(`==========================================\n`);
     
-    // Now extract product details and services from invoice_items (filter out fees and condition notes)
+    // Filter line items down to what the driver actually needs:
+    //   keep — product name/model, condition notes (Factory Second, damaged),
+    //          install/removal services
+    //   drop — payment fees and BNPL surcharges, marketing copy
     const invoiceItems = delivery.invoice_items || [];
-    const feeKeywords = ['card fee', 'shopify fee', 'payment fee', 'transaction fee'];
-    const isAFee = (itemName) => feeKeywords.some(fee => itemName.toLowerCase().includes(fee));
-    
-    // Keywords to exclude from product description (condition notes, damage notes, warranty, thank you messages, etc)
-    const excludeKeywords = ['factory second', 'second hand', 'carton damaged', 'damaged', 'scratched', 'dented', 'warranty', 'shopify', 'thanks again for choosing us', 'hope you enjoy', 'thank you for choosing'];
-    const shouldExcludeLine = (line) => excludeKeywords.some(keyword => line.toLowerCase().includes(keyword));
+    const paymentKeywords = [
+      'tax fee', 'card fee', 'shopify fee', 'payment fee',
+      'transaction fee', 'merchant fee', 'processing fee',
+      'zip pay', 'zippay', 'zip money', 'zipmoney',
+      'afterpay', 'after pay', 'humm', 'klarna',
+      'paypal fee', 'stripe fee'
+    ];
+    const isPaymentLine = (text) =>
+      paymentKeywords.some(kw => text.toLowerCase().includes(kw));
+
+    const noiseKeywords = [
+      'thanks again for choosing us', 'hope you enjoy',
+      'thank you for choosing', 'warranty information'
+    ];
+    const isNoiseLine = (line) =>
+      noiseKeywords.some(kw => line.toLowerCase().includes(kw));
+
+    const isAFee = isPaymentLine;
+    const shouldExcludeLine = (line) => isPaymentLine(line) || isNoiseLine(line);
     
     // Get all products (not just first one) - show full product descriptions
     let products = [];
