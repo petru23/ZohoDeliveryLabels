@@ -459,17 +459,26 @@ class DeliveryLabelGenerator {
       }
     });
 
-    // Set column widths (2 columns, each is one label width)
-    worksheet.getColumn(1).width = this.labelColumnWidth;
-    worksheet.getColumn(2).width = this.labelColumnWidth;
+    // Add top margin row (height 5)
+    worksheet.getRow(1).height = 5;
 
-    let currentRow = 1;
-    let currentCol = 1;
+    // Set column widths:
+    // Col 1: left margin (width 1)
+    // Col 2: first label (width 48)
+    // Col 3: middle margin (width 1)
+    // Col 4: second label (width 48)
+    worksheet.getColumn(1).width = 1;
+    worksheet.getColumn(2).width = this.labelColumnWidth;
+    worksheet.getColumn(3).width = 1;
+    worksheet.getColumn(4).width = this.labelColumnWidth;
+
+    let currentRow = 2;  // Start at row 2 (after top margin)
+    let currentCol = 2;  // Start at column 2 (after left margin)
 
     for (let i = 0; i < deliveries.length; i++) {
       const delivery = deliveries[i];
-      
-      // Calculate cell position
+
+      // Calculate cell position (currentCol already accounts for margins)
       const cellCol = currentCol;
       const cellRow = currentRow;
 
@@ -477,9 +486,12 @@ class DeliveryLabelGenerator {
       this.createLabel(worksheet, delivery, cellRow, cellCol);
 
       // Move to next label position
-      currentCol++;
-      if (currentCol > this.labelsPerRow) {
-        currentCol = 1;
+      if (currentCol === 2) {
+        // First label done, move to second label (skip middle margin)
+        currentCol = 4;
+      } else {
+        // Second label done, wrap to next row
+        currentCol = 2;
         currentRow += 4; // Each label is 4 rows tall (38.1mm ÷ 9.5mm per row)
       }
     }
