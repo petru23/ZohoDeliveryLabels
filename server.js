@@ -1215,19 +1215,19 @@ app.get('/sold-tag', async (req, res) => {
           }
 
           .take-photo {
-            font-size: 16pt;
+            font-size: 14pt;
             font-weight: bold;
             text-align: center;
-            margin-bottom: 6mm;
+            margin-bottom: 5mm;
             color: #FF0000;
             letter-spacing: 2px;
           }
 
           .item-name {
-            font-size: 22pt;
+            font-size: 19pt;
             font-weight: bold;
             text-align: center;
-            margin-bottom: 8mm;
+            margin-bottom: 7mm;
             color: #1a202c;
             word-break: break-word;
             line-height: 1.2;
@@ -1235,31 +1235,31 @@ app.get('/sold-tag', async (req, res) => {
 
           h1 {
             text-align: center;
-            font-size: 130pt;
-            margin: 0 0 12mm 0;
+            font-size: 110pt;
+            margin: 0 0 10mm 0;
             font-weight: 900;
-            letter-spacing: 14px;
+            letter-spacing: 12px;
             color: #FF0000;
             line-height: 1;
           }
 
           .field {
-            font-size: 26pt;
+            font-size: 22pt;
             font-weight: bold;
-            margin: 6mm 0;
+            margin: 5mm 0;
             display: flex;
             align-items: baseline;
           }
 
           .field-label {
-            min-width: 75mm;
+            min-width: 64mm;
           }
 
           .field-line {
             flex: 1;
             border-bottom: 3px solid #000;
-            margin-left: 6mm;
-            height: 10mm;
+            margin-left: 5mm;
+            height: 8mm;
             position: relative;
           }
 
@@ -1268,21 +1268,21 @@ app.get('/sold-tag', async (req, res) => {
             left: 3mm;
             top: -2mm;
             font-weight: normal;
-            font-size: 22pt;
+            font-size: 19pt;
           }
 
           .warning {
-            margin-top: 8mm;
-            padding: 6mm;
+            margin-top: 7mm;
+            padding: 5mm;
             border: 2px solid #000;
-            font-size: 14pt;
+            font-size: 12pt;
             line-height: 1.5;
             text-align: left;
           }
 
           .warning-title {
             font-weight: bold;
-            font-size: 15pt;
+            font-size: 13pt;
             margin-bottom: 4mm;
           }
 
