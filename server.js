@@ -676,11 +676,12 @@ class DeliveryLabelGenerator {
       });
     }
     
-    // All products (size 8) - show each on separate line
+    // All products (bold, size 8) - blank line above to separate from contact info, each item on own line
     if (products.length > 0) {
-      labelContent.push({ 
-        text: (phone.trim() ? '\n' : '') + products.join('\n'), 
-        font: { size: 8, name: 'Arial' } 
+      const hasContactInfo = !!address || phone.trim();
+      labelContent.push({
+        text: (hasContactInfo ? '\n\n' : '') + products.join('\n'),
+        font: { bold: true, size: 8, name: 'Arial' }
       });
     }
     
