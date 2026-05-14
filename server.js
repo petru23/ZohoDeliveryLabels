@@ -1164,7 +1164,7 @@ app.get('/sold-tag', async (req, res) => {
         <style>
           @page {
             size: A4 portrait;
-            margin: 15mm;
+            margin: 0;
           }
 
           * {
@@ -1175,16 +1175,18 @@ app.get('/sold-tag', async (req, res) => {
             font-family: Arial, sans-serif;
             margin: 0;
             padding: 20px;
-            background: #f5f5f5;
+            background: #e5e5e5;
           }
 
           .tag {
-            border: 3px solid #FF0000;
-            padding: 25px 35px;
-            width: 100%;
-            max-width: 600px;
+            width: 210mm;
+            height: 297mm;
+            padding: 18mm 16mm;
             margin: 0 auto 20px auto;
             background: white;
+            border: 4px solid #FF0000;
+            display: flex;
+            flex-direction: column;
             page-break-after: always;
             page-break-inside: avoid;
             break-after: page;
@@ -1196,88 +1198,111 @@ app.get('/sold-tag', async (req, res) => {
             break-after: auto;
             margin-bottom: 0;
           }
-          
+
+          .tag-header {
+            text-align: center;
+          }
+
+          .tag-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+          }
+
+          .tag-footer {
+            min-height: 0;
+          }
+
           .take-photo {
-            font-size: 11pt;
+            font-size: 16pt;
             font-weight: bold;
             text-align: center;
-            margin-bottom: 10px;
+            margin-bottom: 6mm;
             color: #FF0000;
+            letter-spacing: 2px;
           }
 
           .item-name {
-            font-size: 13pt;
+            font-size: 22pt;
             font-weight: bold;
             text-align: center;
-            margin-bottom: 15px;
+            margin-bottom: 8mm;
             color: #1a202c;
             word-break: break-word;
+            line-height: 1.2;
           }
 
           h1 {
             text-align: center;
-            font-size: 60pt;
-            margin: 10px 0 30px 0;
-            font-weight: bold;
-            letter-spacing: 8px;
+            font-size: 130pt;
+            margin: 0 0 12mm 0;
+            font-weight: 900;
+            letter-spacing: 14px;
             color: #FF0000;
+            line-height: 1;
           }
-          
+
           .field {
-            font-size: 18pt;
+            font-size: 26pt;
             font-weight: bold;
-            margin: 12px 0;
+            margin: 6mm 0;
             display: flex;
             align-items: baseline;
           }
-          
+
           .field-label {
-            min-width: 180px;
+            min-width: 75mm;
           }
-          
+
           .field-line {
             flex: 1;
-            border-bottom: 2px solid #000;
-            margin-left: 10px;
-            height: 20px;
+            border-bottom: 3px solid #000;
+            margin-left: 6mm;
+            height: 10mm;
             position: relative;
           }
-          
+
           .field-value {
             position: absolute;
-            left: 5px;
-            top: -5px;
+            left: 3mm;
+            top: -2mm;
             font-weight: normal;
-            font-size: 16pt;
+            font-size: 22pt;
           }
-          
+
           .warning {
-            margin-top: 25px;
-            padding: 15px;
+            margin-top: 8mm;
+            padding: 6mm;
             border: 2px solid #000;
-            font-size: 13pt;
-            line-height: 1.6;
+            font-size: 14pt;
+            line-height: 1.5;
             text-align: left;
           }
-          
+
           .warning-title {
             font-weight: bold;
-            font-size: 14pt;
-            margin-bottom: 10px;
+            font-size: 15pt;
+            margin-bottom: 4mm;
           }
-          
+
           .highlight {
             font-weight: bold;
             text-decoration: underline;
           }
-          
+
+          @media screen {
+            body {
+              transform-origin: top center;
+            }
+          }
+
           @media print {
             html, body {
               margin: 0;
               padding: 0;
               background: white;
-              width: 100%;
-              height: auto;
+              width: 210mm;
             }
 
             .no-print {
@@ -1285,11 +1310,11 @@ app.get('/sold-tag', async (req, res) => {
             }
 
             .tag {
-              border: 3px solid #FF0000;
-              max-width: none;
-              width: 100%;
+              width: 210mm;
+              height: 297mm;
               margin: 0;
-              padding: 15mm 15mm;
+              padding: 18mm 16mm;
+              border: 4px solid #FF0000;
               page-break-after: always;
               page-break-inside: avoid;
               break-after: page;
@@ -1336,59 +1361,65 @@ app.get('/sold-tag', async (req, res) => {
         
         ${tagItems.map(t => `
         <div class="tag">
-          <div class="take-photo">Take Photo</div>
-          ${t.displayName ? `<div class="item-name">${t.displayName}</div>` : ''}
+          <div class="tag-header">
+            <div class="take-photo">Take Photo</div>
+            ${t.displayName ? `<div class="item-name">${t.displayName}</div>` : ''}
+          </div>
 
-          <h1>SOLD</h1>
+          <div class="tag-main">
+            <h1>SOLD</h1>
 
-          <div class="field">
-            <div class="field-label">SUBURB</div>
-            <div class="field-line">
-              <div class="field-value">${suburb}</div>
+            <div class="field">
+              <div class="field-label">SUBURB</div>
+              <div class="field-line">
+                <div class="field-value">${suburb}</div>
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="field-label">DATE</div>
+              <div class="field-line">
+                <div class="field-value">${deliveryDate}</div>
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="field-label">REMOVAL</div>
+              <div class="field-line">
+                <div class="field-value">${removalRequired}</div>
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="field-label">COMBO</div>
+              <div class="field-line">
+                <div class="field-value">${comboUnit}</div>
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="field-label">STAIRS</div>
+              <div class="field-line">
+                <div class="field-value">${stairsAccess}</div>
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="field-label">ONLINE ORDER</div>
+              <div class="field-line">
+                <div class="field-value">${onlineOrder}</div>
+              </div>
             </div>
           </div>
 
-          <div class="field">
-            <div class="field-label">DATE</div>
-            <div class="field-line">
-              <div class="field-value">${deliveryDate}</div>
+          <div class="tag-footer">
+            ${t.isFridge ? `
+            <div class="warning">
+              <div>Please <span class="highlight">Leave Switched Off For 3-4 Hours After Transportation.</span></div>
+              <div style="margin-top: 10px;">Please Use <span class="highlight">Surge Protection</span> And <span class="highlight">Allow Up To 24 Hours</span> To Reach Optimum Chilling Temperature Before Putting Food Inside.</div>
             </div>
+            ` : ''}
           </div>
-
-          <div class="field">
-            <div class="field-label">REMOVAL</div>
-            <div class="field-line">
-              <div class="field-value">${removalRequired}</div>
-            </div>
-          </div>
-
-          <div class="field">
-            <div class="field-label">COMBO</div>
-            <div class="field-line">
-              <div class="field-value">${comboUnit}</div>
-            </div>
-          </div>
-
-          <div class="field">
-            <div class="field-label">STAIRS</div>
-            <div class="field-line">
-              <div class="field-value">${stairsAccess}</div>
-            </div>
-          </div>
-
-          <div class="field">
-            <div class="field-label">ONLINE ORDER</div>
-            <div class="field-line">
-              <div class="field-value">${onlineOrder}</div>
-            </div>
-          </div>
-
-          ${t.isFridge ? `
-          <div class="warning">
-            <div>Please <span class="highlight">Leave Switched Off For 3-4 Hours After Transportation.</span></div>
-            <div style="margin-top: 10px;">Please Use <span class="highlight">Surge Protection</span> And <span class="highlight">Allow Up To 24 Hours</span> To Reach Optimum Chilling Temperature Before Putting Food Inside.</div>
-          </div>
-          ` : ''}
         </div>
         `).join('')}
       </body>
