@@ -1179,10 +1179,10 @@ app.get('/sold-tag', async (req, res) => {
           }
 
           .tag {
-            width: 210mm;
-            height: 297mm;
-            padding: 18mm 16mm;
-            margin: 0 auto 20px auto;
+            width: 186mm;
+            height: 273mm;
+            padding: 16mm 14mm;
+            margin: 12mm auto;
             background: white;
             border: 4px solid #FF0000;
             display: flex;
@@ -1215,19 +1215,19 @@ app.get('/sold-tag', async (req, res) => {
           }
 
           .take-photo {
-            font-size: 14pt;
+            font-size: 16pt;
             font-weight: bold;
             text-align: center;
-            margin-bottom: 5mm;
+            margin-bottom: 6mm;
             color: #FF0000;
             letter-spacing: 2px;
           }
 
           .item-name {
-            font-size: 19pt;
+            font-size: 22pt;
             font-weight: bold;
             text-align: center;
-            margin-bottom: 7mm;
+            margin-bottom: 8mm;
             color: #1a202c;
             word-break: break-word;
             line-height: 1.2;
@@ -1235,31 +1235,31 @@ app.get('/sold-tag', async (req, res) => {
 
           h1 {
             text-align: center;
-            font-size: 110pt;
-            margin: 0 0 10mm 0;
+            font-size: 130pt;
+            margin: 0 0 12mm 0;
             font-weight: 900;
-            letter-spacing: 12px;
+            letter-spacing: 14px;
             color: #FF0000;
             line-height: 1;
           }
 
           .field {
-            font-size: 22pt;
+            font-size: 26pt;
             font-weight: bold;
-            margin: 5mm 0;
+            margin: 6mm 0;
             display: flex;
             align-items: baseline;
           }
 
           .field-label {
-            min-width: 64mm;
+            min-width: 75mm;
           }
 
           .field-line {
             flex: 1;
             border-bottom: 3px solid #000;
-            margin-left: 5mm;
-            height: 8mm;
+            margin-left: 6mm;
+            height: 10mm;
             position: relative;
           }
 
@@ -1268,21 +1268,21 @@ app.get('/sold-tag', async (req, res) => {
             left: 3mm;
             top: -2mm;
             font-weight: normal;
-            font-size: 19pt;
+            font-size: 22pt;
           }
 
           .warning {
-            margin-top: 7mm;
-            padding: 5mm;
+            margin-top: 8mm;
+            padding: 6mm;
             border: 2px solid #000;
-            font-size: 12pt;
+            font-size: 14pt;
             line-height: 1.5;
             text-align: left;
           }
 
           .warning-title {
             font-weight: bold;
-            font-size: 13pt;
+            font-size: 15pt;
             margin-bottom: 4mm;
           }
 
@@ -1310,10 +1310,10 @@ app.get('/sold-tag', async (req, res) => {
             }
 
             .tag {
-              width: 210mm;
-              height: 297mm;
-              margin: 0;
-              padding: 18mm 16mm;
+              width: 186mm;
+              height: 273mm;
+              margin: 12mm auto;
+              padding: 16mm 14mm;
               border: 4px solid #FF0000;
               page-break-after: always;
               page-break-inside: avoid;
