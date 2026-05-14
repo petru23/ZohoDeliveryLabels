@@ -1163,32 +1163,38 @@ app.get('/sold-tag', async (req, res) => {
         <meta charset="UTF-8">
         <style>
           @page {
-            size: A5 landscape;
-            margin: 10mm;
+            size: A4 portrait;
+            margin: 15mm;
           }
-          
+
           * {
             box-sizing: border-box;
           }
-          
+
           body {
             font-family: Arial, sans-serif;
             margin: 0;
             padding: 20px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
             background: #f5f5f5;
           }
-          
+
           .tag {
             border: 3px solid #FF0000;
-            padding: 20px 30px;
+            padding: 25px 35px;
             width: 100%;
-            max-width: 500px;
+            max-width: 600px;
+            margin: 0 auto 20px auto;
             background: white;
             page-break-after: always;
+            page-break-inside: avoid;
+            break-after: page;
+            break-inside: avoid;
+          }
+
+          .tag:last-of-type {
+            page-break-after: auto;
+            break-after: auto;
+            margin-bottom: 0;
           }
           
           .take-photo {
@@ -1266,19 +1272,33 @@ app.get('/sold-tag', async (req, res) => {
           }
           
           @media print {
-            body {
+            html, body {
               margin: 0;
               padding: 0;
               background: white;
+              width: 100%;
+              height: auto;
             }
-            
+
             .no-print {
-              display: none;
+              display: none !important;
             }
-            
+
             .tag {
               border: 3px solid #FF0000;
               max-width: none;
+              width: 100%;
+              margin: 0;
+              padding: 15mm 15mm;
+              page-break-after: always;
+              page-break-inside: avoid;
+              break-after: page;
+              break-inside: avoid;
+            }
+
+            .tag:last-of-type {
+              page-break-after: auto;
+              break-after: auto;
             }
           }
           
