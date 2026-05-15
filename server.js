@@ -1275,11 +1275,12 @@ app.get('/sold-tag', async (req, res) => {
 
           .warning {
             margin-top: 5mm;
-            padding: 4mm 5mm;
-            border: 2px solid #000;
-            font-size: 12pt;
-            line-height: 1.4;
+            padding: 5mm 6mm;
+            border: 3px solid #000;
+            font-size: 14pt;
+            line-height: 1.5;
             text-align: left;
+            font-weight: 500;
           }
 
           .warning-title {
