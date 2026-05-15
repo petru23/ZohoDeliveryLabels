@@ -1182,12 +1182,13 @@ app.get('/sold-tag', async (req, res) => {
           .tag {
             width: 186mm;
             height: 273mm;
-            padding: 16mm 14mm;
+            padding: 14mm 14mm;
             margin: 12mm auto;
             background: white;
             border: 4px solid #FF0000;
             display: flex;
             flex-direction: column;
+            overflow: hidden;
             page-break-after: always;
             page-break-inside: avoid;
             break-after: page;
@@ -1236,31 +1237,31 @@ app.get('/sold-tag', async (req, res) => {
 
           h1 {
             text-align: center;
-            font-size: 130pt;
-            margin: 0 0 12mm 0;
+            font-size: 110pt;
+            margin: 0 0 6mm 0;
             font-weight: 900;
-            letter-spacing: 14px;
+            letter-spacing: 12px;
             color: #FF0000;
             line-height: 1;
           }
 
           .field {
-            font-size: 26pt;
+            font-size: 24pt;
             font-weight: bold;
-            margin: 6mm 0;
+            margin: 3mm 0;
             display: flex;
             align-items: baseline;
           }
 
           .field-label {
-            min-width: 75mm;
+            min-width: 70mm;
           }
 
           .field-line {
             flex: 1;
             border-bottom: 3px solid #000;
-            margin-left: 6mm;
-            height: 10mm;
+            margin-left: 5mm;
+            height: 8mm;
             position: relative;
           }
 
@@ -1269,15 +1270,15 @@ app.get('/sold-tag', async (req, res) => {
             left: 3mm;
             top: -2mm;
             font-weight: normal;
-            font-size: 22pt;
+            font-size: 20pt;
           }
 
           .warning {
-            margin-top: 8mm;
-            padding: 6mm;
+            margin-top: 5mm;
+            padding: 4mm 5mm;
             border: 2px solid #000;
-            font-size: 14pt;
-            line-height: 1.5;
+            font-size: 12pt;
+            line-height: 1.4;
             text-align: left;
           }
 
@@ -1314,8 +1315,9 @@ app.get('/sold-tag', async (req, res) => {
               width: 186mm;
               height: 273mm;
               margin: 12mm auto;
-              padding: 16mm 14mm;
+              padding: 14mm 14mm;
               border: 4px solid #FF0000;
+              overflow: hidden;
               page-break-after: always;
               page-break-inside: avoid;
               break-after: page;
