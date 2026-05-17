@@ -713,11 +713,152 @@ class DeliveryLabelGenerator {
 }
 
 // ============================================================================
+// DELIVERY COMPANY EXPORT (third-party courier spreadsheet)
+// ============================================================================
+
+// Parse a freeform street line into { unitNumber, streetName }.
+// Handles: "16 Buhot Street", "2/304 Lutwyche Road", "Unit 5, 47 Pioneer St",
+// "9/285 Creek Road", "119 / 7 Land Street". If no leading number is found,
+// the whole string goes into streetName.
+function splitUnitAndStreet(streetLine) {
+  if (!streetLine) return { unitNumber: '', streetName: '' };
+  const s = streetLine.trim();
+  // 1) "Unit 5, 47 Pioneer Street" or "Unit 5 47 Pioneer Street"
+  let m = s.match(/^(Unit\s*[\w\d-]+(?:[,\s]+\d+)?)\s+(.+)$/i);
+  if (m) return { unitNumber: m[1].replace(/\s+/g, ' ').trim(), streetName: m[2].trim() };
+  // 2) "9/285 Creek Road" or "119 / 7 Land Street"
+  m = s.match(/^(\d+\s*\/\s*\d+)\s+(.+)$/);
+  if (m) return { unitNumber: m[1].replace(/\s+/g, ''), streetName: m[2].trim() };
+  // 3) "16 Buhot Street"
+  m = s.match(/^(\d+[a-zA-Z]?)\s+(.+)$/);
+  if (m) return { unitNumber: m[1], streetName: m[2].trim() };
+  return { unitNumber: '', streetName: s };
+}
+
+class DeliveryCompanyExporter {
+  async generate(deliveries) {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Uploads', {
+      pageSetup: { orientation: 'portrait', fitToPage: false }
+    });
+
+    // Column widths — match the supplied template exactly.
+    const colWidths = [49.57, 26, 33.85, 27.14, 16.14, 13.14, 18.42, 14.14, 44, 54, 12.71, 12.14, 12];
+    colWidths.forEach((w, i) => { worksheet.getColumn(i + 1).width = w; });
+
+    // Header row
+    const headers = [
+      'Name', 'Building/House Number', 'Street Name', 'City', 'State/Region',
+      'Postal', 'Country', 'Color', 'Phone', 'Note', 'Latitude', 'Longitude', 'Visit Time'
+    ];
+    const headerRow = worksheet.getRow(1);
+    headers.forEach((h, i) => { headerRow.getCell(i + 1).value = h; });
+    headerRow.height = 101.25;
+    for (let c = 1; c <= headers.length; c++) {
+      const cell = headerRow.getCell(c);
+      cell.font = { bold: true, size: 26, color: { argb: 'FF000000' }, name: 'Calibri' };
+      cell.alignment = { wrapText: true, vertical: 'middle' };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF92D050' } };
+      cell.border = {
+        top:    { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        left:   { style: 'thin', color: { argb: 'FF000000' } },
+        right:  { style: 'thin', color: { argb: 'FF000000' } },
+      };
+    }
+
+    // Data rows — only populate the columns the courier needs:
+    // A=Suburb, B=Unit/House #, C=Street, I=Phone, J=Items.
+    // Constants: E=QLD, G=AU (Australia), H=Yellow. Everything else blank.
+    for (const delivery of deliveries) {
+      const pickAddr =
+        (delivery.shipping_address?.street && delivery.shipping_address) ||
+        (delivery.billing_address?.street && delivery.billing_address) ||
+        (delivery.customer_shipping_address?.street && delivery.customer_shipping_address) ||
+        (delivery.customer_billing_address?.street && delivery.customer_billing_address) ||
+        {};
+
+      const { unitNumber, streetName } = splitUnitAndStreet(pickAddr.street || '');
+      const suburb = pickAddr.city || '';
+      const state = pickAddr.state || 'QLD';
+
+      const phone =
+        delivery.shipping_address?.phone ||
+        delivery.billing_address?.phone ||
+        delivery.contactpersons?.[0]?.mobile ||
+        delivery.contact_persons_associated?.[0]?.mobile ||
+        delivery.customer_phone ||
+        delivery.customer_contact_persons?.[0]?.mobile ||
+        '';
+
+      // Items: reuse the same filters as the printed labels so payment fees,
+      // condition tags, and marketing fluff don't leak into the courier note.
+      const noiseKeywords = [
+        'factory second', 'second hand', 'carton damaged', 'damaged', 'scratched', 'dented',
+        'warranty', 'thanks again for choosing us', 'hope you enjoy', 'thank you for choosing',
+        'shopify'
+      ];
+      const shouldExclude = (line) => {
+        const lower = (line || '').toLowerCase();
+        return noiseKeywords.some(kw => lower.includes(kw));
+      };
+      const invoiceItems = delivery.invoice_items || delivery.line_items || [];
+      const noteParts = [];
+      for (const item of invoiceItems) {
+        const name = (item.name || '').trim();
+        const description = (item.description || '').trim();
+        if ((name && isPaymentLine(name)) || (description && isPaymentLine(description))) continue;
+        const probe = name || description;
+        if (isServiceLine(probe)) { noteParts.push(compactBrand(probe)); continue; }
+        const candidates = [name, ...description.split('\n')].map(l => l.trim()).filter(Boolean);
+        const seen = new Set();
+        const productLines = [];
+        for (const line of candidates) {
+          const key = line.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (shouldExclude(line)) continue;
+          if (isServiceLine(line)) continue;
+          productLines.push(compactBrand(line));
+        }
+        if (productLines.length > 0) noteParts.push(productLines.join(' '));
+      }
+      const note = noteParts.join(' + ');
+
+      const row = worksheet.addRow([
+        suburb,         // A: Name (suburb)
+        unitNumber,     // B: Building/House Number
+        streetName,     // C: Street Name
+        '',             // D: City — blank in template
+        state,          // E: State/Region
+        '',             // F: Postal — blank in template
+        'AU (Australia)', // G: Country
+        'Yellow',       // H: Color
+        phone,          // I: Phone
+        note,           // J: Note
+        '', '', ''      // K, L, M: blank
+      ]);
+
+      row.height = 101.25;
+      for (let c = 1; c <= 13; c++) {
+        const cell = row.getCell(c);
+        cell.font = { size: 26, color: { argb: 'FF000000' }, name: 'Calibri' };
+        cell.alignment = { wrapText: true, vertical: 'middle' };
+      }
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return { buffer };
+  }
+}
+
+// ============================================================================
 // API ENDPOINTS
 // ============================================================================
 
 const zohoBooks = new ZohoBooksAPI();
 const labelGenerator = new DeliveryLabelGenerator();
+const companyExporter = new DeliveryCompanyExporter();
 
 // Root endpoint - serve dashboard
 app.get('/', (req, res) => {
@@ -771,6 +912,50 @@ app.get('/api/generate-labels-today', async (req, res) => {
     await streamLabels(res, invoices, filename, 'No deliveries scheduled for today');
   } catch (error) {
     console.error('Label generation error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Build the courier-company spreadsheet (third-party template) and stream it.
+async function streamCompanyExport(res, deliveries, downloadFilename, emptyMessage) {
+  if (deliveries.length === 0) {
+    return res.json({ success: true, message: emptyMessage, count: 0 });
+  }
+  const detailed = (await Promise.all(
+    deliveries.map(inv => zohoBooks.getInvoiceDetails(inv.invoice_id))
+  )).filter(d => d !== null);
+  const enriched = await zohoBooks.enrichDeliveriesWithCustomerData(detailed);
+  const { buffer } = await companyExporter.generate(enriched);
+  res.set({
+    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'Content-Disposition': `attachment; filename="${downloadFilename}"`,
+    'X-Delivery-Count': String(enriched.length),
+    'X-Delivery-Filename': downloadFilename,
+    'Access-Control-Expose-Headers': 'X-Delivery-Count, X-Delivery-Filename',
+  });
+  res.send(Buffer.from(buffer));
+}
+
+// Courier company export — tomorrow
+app.get('/api/generate-company-export', async (req, res) => {
+  try {
+    const invoices = await zohoBooks.getTomorrowDeliveries();
+    const filename = `courier-${format(addDays(new Date(), 1), 'yyyy-MM-dd')}.xlsx`;
+    await streamCompanyExport(res, invoices, filename, 'No deliveries scheduled for tomorrow');
+  } catch (error) {
+    console.error('Company export error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Courier company export — today
+app.get('/api/generate-company-export-today', async (req, res) => {
+  try {
+    const invoices = await zohoBooks.getTodayDeliveries();
+    const filename = `courier-${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+    await streamCompanyExport(res, invoices, filename, 'No deliveries scheduled for today');
+  } catch (error) {
+    console.error('Company export error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1180,6 +1365,7 @@ app.get('/sold-tag', async (req, res) => {
           }
 
           .tag {
+            position: relative;
             width: 186mm;
             height: 273mm;
             padding: 14mm 14mm;
@@ -1193,6 +1379,16 @@ app.get('/sold-tag', async (req, res) => {
             page-break-inside: avoid;
             break-after: page;
             break-inside: avoid;
+          }
+
+          .invoice-number {
+            position: absolute;
+            top: 8mm;
+            right: 10mm;
+            font-size: 16pt;
+            font-weight: bold;
+            color: #1a202c;
+            letter-spacing: 1px;
           }
 
           .tag:last-of-type {
@@ -1365,6 +1561,7 @@ app.get('/sold-tag', async (req, res) => {
         
         ${tagItems.map(t => `
         <div class="tag">
+          <div class="invoice-number">#${invoice.invoice_number || ''}</div>
           <div class="tag-header">
             <div class="take-photo">Take Photo</div>
             ${t.displayName ? `<div class="item-name">${t.displayName}</div>` : ''}

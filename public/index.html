@@ -361,6 +361,11 @@
         <div class="spinner" id="spinner"></div>
       </button>
 
+      <button class="btn" id="courierBtn" onclick="generateCourierExport()" style="margin-top: 12px; background: #38a169;">
+        <span id="courierBtnText">Generate Courier Export (Tomorrow)</span>
+        <div class="spinner" id="courierSpinner"></div>
+      </button>
+
       <div class="files-list" id="filesList" style="display: none;">
         <h2>Recent Files</h2>
         <div id="filesContainer"></div>
@@ -508,38 +513,34 @@
 
     let isGenerating = false;
 
-    async function generateLabels() {
+    async function runXlsxJob({ endpoint, btnId, textId, spinnerId, defaultFilename }) {
       if (isGenerating) return;
-
       isGenerating = true;
-      const btn = document.getElementById('generateBtn');
-      const btnText = document.getElementById('btnText');
-      const spinner = document.getElementById('spinner');
+      const btn = document.getElementById(btnId);
+      const btnText = document.getElementById(textId);
+      const spinner = document.getElementById(spinnerId);
       const message = document.getElementById('message');
 
-      // Update UI
       btn.disabled = true;
       btnText.style.display = 'none';
       spinner.style.display = 'block';
       message.classList.remove('show', 'success', 'error');
 
       try {
-        const response = await fetch('/api/generate-labels');
+        const response = await fetch(endpoint);
         const contentType = response.headers.get('content-type') || '';
 
         if (contentType.includes('application/json')) {
-          // No deliveries / error path
           const data = await response.json();
           if (!response.ok || data.success === false) {
             throw new Error(data.error || data.message || 'Unknown error');
           }
           message.className = 'message success show';
           message.textContent = data.message || 'No deliveries to generate.';
-          document.getElementById('deliveryCount').textContent = `Last: ${data.count || 0} labels`;
+          document.getElementById('deliveryCount').textContent = `Last: ${data.count || 0} items`;
         } else {
-          // Binary .xlsx — count comes from custom header, file from body
           const count = response.headers.get('x-delivery-count') || '?';
-          const filename = response.headers.get('x-delivery-filename') || 'labels.xlsx';
+          const filename = response.headers.get('x-delivery-filename') || defaultFilename;
           const blob = await response.blob();
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -552,19 +553,38 @@
 
           message.className = 'message success show';
           message.textContent = `✓ Generated: ${filename} (${count} deliveries) - Downloading...`;
-          document.getElementById('deliveryCount').textContent = `Last: ${count} labels`;
+          document.getElementById('deliveryCount').textContent = `Last: ${count} items`;
           loadRecentFiles();
         }
       } catch (error) {
         message.className = 'message error show';
         message.textContent = `✗ Error: ${error.message}`;
       } finally {
-        // Reset UI
         btn.disabled = false;
         btnText.style.display = 'inline';
         spinner.style.display = 'none';
         isGenerating = false;
       }
+    }
+
+    function generateLabels() {
+      return runXlsxJob({
+        endpoint: '/api/generate-labels',
+        btnId: 'generateBtn',
+        textId: 'btnText',
+        spinnerId: 'spinner',
+        defaultFilename: 'labels.xlsx',
+      });
+    }
+
+    function generateCourierExport() {
+      return runXlsxJob({
+        endpoint: '/api/generate-company-export',
+        btnId: 'courierBtn',
+        textId: 'courierBtnText',
+        spinnerId: 'courierSpinner',
+        defaultFilename: 'courier.xlsx',
+      });
     }
 
     async function loadRecentFiles() {
