@@ -28,7 +28,7 @@ This is a single-file Express app (`server.js`, ~1500 lines) plus a static dashb
    - **Long-running (local/PM2):** `setInterval` refreshes every 50 min.
    - **Serverless (Vercel):** `setInterval` is unreliable, so `getAccessToken()` calls `ensureValidToken()` on each request and refreshes when <5 min remain.
 3. **`ZohoBooksAPI`** — talks to the Zoho **Billing** API at `https://www.zohoapis.com.au/billing/v1` (AU region; auth host is `accounts.zoho.com.au`). Two non-obvious behaviors:
-   - The list endpoint must be called with `sort_column: 'date'` to make custom fields (`cf_delivery_date`, `cf_delivery_pick_up`) appear in the response — sorting by other columns silently strips them.
+   - The list endpoint must be called with `sort_column: 'date'` to make custom fields (`cf_delivery_date`, `cf_delivery_pick_up_1`) appear in the response — sorting by other columns silently strips them.
    - Date filtering and delivery/pickup filtering are done **client-side** after fetch (Zoho's server-side filtering on custom fields is not used). Date strings come in as either ISO (`YYYY-MM-DD`) or AU (`DD/MM/YYYY`) and both branches must be handled.
    - `enrichDeliveriesWithCustomerData()` falls back to `/contacts/{id}` when an invoice's address or phone is missing — needed because Zoho invoices often don't carry the full address.
 4. **`DeliveryLabelGenerator`** — Avery 5162 layout (99.1mm × 38.1mm, 2 cols × 7 rows = 14 per A4 sheet) built with ExcelJS. The address rendering walks a five-step fallback chain (invoice shipping → invoice billing → customer shipping → customer billing → `attention` field); preserve this order when modifying. Line items are split into `products` vs `services` by regex (`/instal|remov/i`) and filtered against `feeKeywords` and `excludeKeywords` (warranty/damaged/etc.).
@@ -48,8 +48,8 @@ Generated Excel files go to `./output/` locally and `/tmp/` on Vercel (auto-clea
 
 ## Configuration knobs
 
-- **Custom field names** (`cf_delivery_date`, `cf_delivery_date_unformatted`, `cf_delivery_pick_up`) are referenced in `getDeliveriesForDate()`. Renaming the field in Zoho means updating these strings.
-- **Pickup vs delivery filter** — only invoices where `cf_delivery_pick_up` matches `delivery` or `'d'` are included. Pickups are excluded.
+- **Custom field names** (`cf_delivery_date`, `cf_delivery_date_unformatted`, `cf_delivery_pick_up_1`) are referenced in `getDeliveriesForDate()`. Renaming the field in Zoho means updating these strings.
+- **Pickup vs delivery filter** — only invoices where `cf_delivery_pick_up_1` dropdown is set to `"Delivery"` are included. Pickups are excluded. The field is now a required dropdown (not freeform text) to reduce data-entry errors.
 - **Region** — code is hardcoded to `.com.au` Zoho endpoints. Other regions need both `authBaseUrl` and `baseUrl` updated.
 - **Credentials precedence** — `credentials.json` always wins over `.env`. When both exist and disagree, the file is authoritative.
 

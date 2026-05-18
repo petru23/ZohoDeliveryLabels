@@ -285,9 +285,9 @@ class ZohoBooksAPI {
         }
 
         // Filter to include ONLY deliveries (exclude pickups)
-        const deliveryType = (invoice.cf_delivery_pick_up || '').toLowerCase();
-        const isDelivery = deliveryType.includes('delivery') || deliveryType === 'd';
-        
+        const deliveryType = (invoice.cf_delivery_pick_up_1 || '').toLowerCase();
+        const isDelivery = deliveryType === 'delivery';
+
         return isDelivery;
       });
 
@@ -1019,7 +1019,7 @@ app.get('/api/debug/invoices', async (req, res) => {
         customer: inv.customer_name,
         cf_delivery_date: inv.cf_delivery_date,
         cf_delivery_date_unformatted: inv.cf_delivery_date_unformatted,
-        cf_delivery_pick_up: inv.cf_delivery_pick_up,
+        cf_delivery_pick_up_1: inv.cf_delivery_pick_up_1,
         status: inv.status
       }))
     });
