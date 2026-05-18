@@ -976,6 +976,46 @@ app.get('/api/files', (req, res) => {
   res.json({ files });
 });
 
+// Debug endpoint - dump raw contact record so we can verify field shape.
+// Usage: /api/debug/customer/<customer_id>  OR  /api/debug/customer-by-name/<name>
+app.get('/api/debug/customer/:id', async (req, res) => {
+  try {
+    const response = await axios.get(`${zohoBooks.baseUrl}/contacts/${req.params.id}`, {
+      headers: await zohoBooks.getHeaders(),
+      params: { organization_id: zohoBooks.organizationId }
+    });
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message, details: error.response?.data });
+  }
+});
+
+app.get('/api/debug/customer-by-invoice/:invoiceId', async (req, res) => {
+  try {
+    const invDetails = await zohoBooks.getInvoiceDetails(req.params.invoiceId);
+    if (!invDetails) return res.status(404).json({ error: 'Invoice not found' });
+    const customerResp = await axios.get(`${zohoBooks.baseUrl}/contacts/${invDetails.customer_id}`, {
+      headers: await zohoBooks.getHeaders(),
+      params: { organization_id: zohoBooks.organizationId }
+    });
+    res.json({
+      customer_id: invDetails.customer_id,
+      customer_name: invDetails.customer_name,
+      invoice_billing_address: invDetails.billing_address,
+      invoice_shipping_address: invDetails.shipping_address,
+      contact_response_keys: Object.keys(customerResp.data.contact || {}),
+      contact_billing_address: customerResp.data.contact?.billing_address,
+      contact_shipping_address: customerResp.data.contact?.shipping_address,
+      contact_addresses: customerResp.data.contact?.addresses,
+      contact_contact_persons: customerResp.data.contact?.contact_persons,
+      contact_phone: customerResp.data.contact?.phone,
+      contact_mobile: customerResp.data.contact?.mobile,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message, details: error.response?.data });
+  }
+});
+
 // Debug endpoint - show raw invoice data
 app.get('/api/debug/invoices', async (req, res) => {
   try {
