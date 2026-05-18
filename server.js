@@ -335,59 +335,37 @@ class ZohoBooksAPI {
 
   // Enrich deliveries with customer data when address/phone is missing
   async enrichDeliveriesWithCustomerData(deliveries) {
+    // Always fetch the customer record for every delivery. Zoho freezes a
+    // copy of the customer address/phone into the invoice at creation time,
+    // so when staff fix the customer record afterwards the invoice snapshot
+    // stays stale. We pull /contacts/{id} unconditionally so the label always
+    // reflects the *current* customer data, not the frozen invoice copy.
     const enrichedDeliveries = [];
-    
+
     for (const delivery of deliveries) {
-      // A street is required to consider an address "present" — city/state
-      // alone are useless to a delivery driver, so we still need to fall
-      // through to the customer record.
-      const hasShippingAddress = !!delivery.shipping_address?.street;
-      const hasBillingAddress = !!delivery.billing_address?.street;
-      const hasPhone = delivery.shipping_address?.phone || 
-                       delivery.billing_address?.phone || 
-                       delivery.contactpersons?.[0]?.mobile ||
-                       delivery.contact_persons_associated?.[0]?.mobile;
-      
-      // If address or phone is missing, fetch customer details
-      if (!hasShippingAddress && !hasBillingAddress || !hasPhone) {
-        console.log(`⚠️  Missing data for ${delivery.customer_name}. Fetching customer details...`);
-        
-        const customerDetails = await this.getCustomerDetails(delivery.customer_id);
-        
-        if (customerDetails) {
-          // Merge customer data into delivery object
-          // Only add if not already present
-          if (!hasShippingAddress && !hasBillingAddress) {
-            // Use customer's primary billing address
-            if (customerDetails.billing_address) {
-              delivery.customer_billing_address = customerDetails.billing_address;
-              console.log(`  ✓ Added customer billing address for ${delivery.customer_name}`);
-            }
-            // Or shipping address if available
-            if (customerDetails.shipping_address) {
-              delivery.customer_shipping_address = customerDetails.shipping_address;
-              console.log(`  ✓ Added customer shipping address for ${delivery.customer_name}`);
-            }
-          }
-          
-          // Add customer phone/mobile if missing
-          if (!hasPhone) {
-            if (customerDetails.phone || customerDetails.mobile) {
-              delivery.customer_phone = customerDetails.phone || customerDetails.mobile;
-              console.log(`  ✓ Added customer phone for ${delivery.customer_name}`);
-            }
-          }
-          
-          // Add contact persons if available
-          if (customerDetails.contact_persons && customerDetails.contact_persons.length > 0) {
-            delivery.customer_contact_persons = customerDetails.contact_persons;
-          }
+      const customerDetails = await this.getCustomerDetails(delivery.customer_id);
+
+      if (customerDetails) {
+        if (customerDetails.billing_address) {
+          delivery.customer_billing_address = customerDetails.billing_address;
         }
+        if (customerDetails.shipping_address) {
+          delivery.customer_shipping_address = customerDetails.shipping_address;
+        }
+        if (customerDetails.phone || customerDetails.mobile) {
+          delivery.customer_phone = customerDetails.phone || customerDetails.mobile;
+        }
+        if (customerDetails.contact_persons && customerDetails.contact_persons.length > 0) {
+          delivery.customer_contact_persons = customerDetails.contact_persons;
+        }
+        console.log(`✓ Refreshed customer data for ${delivery.customer_name}`);
+      } else {
+        console.log(`⚠️  Could not fetch customer record for ${delivery.customer_name} (id ${delivery.customer_id}) — falling back to invoice snapshot`);
       }
-      
+
       enrichedDeliveries.push(delivery);
     }
-    
+
     return enrichedDeliveries;
   }
 }
@@ -529,22 +507,25 @@ class DeliveryLabelGenerator {
         .join(', ');
     };
 
+    // Prefer the LIVE customer record over the invoice's frozen snapshot:
+    // staff sometimes fix the customer after the invoice is generated, and
+    // Zoho does not retroactively update the invoice copy.
     const address =
-      formatAddress(delivery.shipping_address) ||
-      formatAddress(delivery.billing_address) ||
       formatAddress(delivery.customer_shipping_address) ||
       formatAddress(delivery.customer_billing_address) ||
+      formatAddress(delivery.shipping_address) ||
+      formatAddress(delivery.billing_address) ||
       delivery.customer_billing_address?.attention ||
       delivery.billing_address?.attention ||
       '';
-    
-    // Phone extraction with fallback chain
-    let phone = delivery.shipping_address?.phone || 
-                delivery.billing_address?.phone || 
-                (delivery.contactpersons?.[0]?.mobile) ||
-                (delivery.contact_persons_associated?.[0]?.mobile) ||
-                delivery.customer_phone ||  // From customer record
-                (delivery.customer_contact_persons?.[0]?.mobile) ||  // From customer contacts
+
+    // Phone: same priority — customer record first, invoice fallback last.
+    let phone = delivery.customer_phone ||
+                delivery.customer_contact_persons?.[0]?.mobile ||
+                delivery.shipping_address?.phone ||
+                delivery.billing_address?.phone ||
+                delivery.contactpersons?.[0]?.mobile ||
+                delivery.contact_persons_associated?.[0]?.mobile ||
                 '';
     
     // DEBUG: Log entire delivery object structure for this customer
@@ -771,11 +752,13 @@ class DeliveryCompanyExporter {
     // A=Suburb, B=Unit/House #, C=Street, I=Phone, J=Items.
     // Constants: E=QLD, G=AU (Australia), H=Yellow. Everything else blank.
     for (const delivery of deliveries) {
+      // Same priority rule as the printed label: live customer record first,
+      // invoice snapshot only as a last resort.
       const pickAddr =
-        (delivery.shipping_address?.street && delivery.shipping_address) ||
-        (delivery.billing_address?.street && delivery.billing_address) ||
         (delivery.customer_shipping_address?.street && delivery.customer_shipping_address) ||
         (delivery.customer_billing_address?.street && delivery.customer_billing_address) ||
+        (delivery.shipping_address?.street && delivery.shipping_address) ||
+        (delivery.billing_address?.street && delivery.billing_address) ||
         {};
 
       const { unitNumber, streetName } = splitUnitAndStreet(pickAddr.street || '');
@@ -783,12 +766,12 @@ class DeliveryCompanyExporter {
       const state = pickAddr.state || 'QLD';
 
       const phone =
+        delivery.customer_phone ||
+        delivery.customer_contact_persons?.[0]?.mobile ||
         delivery.shipping_address?.phone ||
         delivery.billing_address?.phone ||
         delivery.contactpersons?.[0]?.mobile ||
         delivery.contact_persons_associated?.[0]?.mobile ||
-        delivery.customer_phone ||
-        delivery.customer_contact_persons?.[0]?.mobile ||
         '';
 
       // Items: reuse the same filters as the printed labels so payment fees,
