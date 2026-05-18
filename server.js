@@ -497,12 +497,19 @@ class DeliveryLabelGenerator {
     // Extract customer and address info
     const customerName = delivery.customer_name || 'CUSTOMER NAME MISSING';
     
-    // Address extraction. An entry is only usable if it has a street —
+    // Address extraction. An entry is only usable if it has a street line —
     // city/state alone don't help the driver, so we keep falling through
     // until we find a record with a real street line.
+    // NOTE: Zoho's invoice endpoint uses `.street`, but the contact endpoint
+    // returns the same field under `.address`. We accept either. Same for
+    // state — contact returns `state_code` ("QLD") which is what we want on
+    // the label; `.state` ("Queensland") is the verbose fallback.
     const formatAddress = (addr) => {
-      if (!addr || !addr.street) return null;
-      return [addr.street, addr.street2, addr.city, addr.state]
+      if (!addr) return null;
+      const street = addr.street || addr.address;
+      if (!street) return null;
+      const state = addr.state_code || addr.state;
+      return [street, addr.street2, addr.city, state]
         .filter(Boolean)
         .join(', ');
     };
@@ -522,6 +529,8 @@ class DeliveryLabelGenerator {
     // Phone: same priority — customer record first, invoice fallback last.
     let phone = delivery.customer_phone ||
                 delivery.customer_contact_persons?.[0]?.mobile ||
+                delivery.customer_shipping_address?.phone ||
+                delivery.customer_billing_address?.phone ||
                 delivery.shipping_address?.phone ||
                 delivery.billing_address?.phone ||
                 delivery.contactpersons?.[0]?.mobile ||
@@ -753,21 +762,25 @@ class DeliveryCompanyExporter {
     // Constants: E=QLD, G=AU (Australia), H=Yellow. Everything else blank.
     for (const delivery of deliveries) {
       // Same priority rule as the printed label: live customer record first,
-      // invoice snapshot only as a last resort.
+      // invoice snapshot only as a last resort. Contact endpoint stores the
+      // street line under `.address`; invoice endpoint uses `.street`.
+      const streetOf = (a) => a && (a.street || a.address);
       const pickAddr =
-        (delivery.customer_shipping_address?.street && delivery.customer_shipping_address) ||
-        (delivery.customer_billing_address?.street && delivery.customer_billing_address) ||
-        (delivery.shipping_address?.street && delivery.shipping_address) ||
-        (delivery.billing_address?.street && delivery.billing_address) ||
+        (streetOf(delivery.customer_shipping_address) && delivery.customer_shipping_address) ||
+        (streetOf(delivery.customer_billing_address) && delivery.customer_billing_address) ||
+        (streetOf(delivery.shipping_address) && delivery.shipping_address) ||
+        (streetOf(delivery.billing_address) && delivery.billing_address) ||
         {};
 
-      const { unitNumber, streetName } = splitUnitAndStreet(pickAddr.street || '');
+      const { unitNumber, streetName } = splitUnitAndStreet(streetOf(pickAddr) || '');
       const suburb = pickAddr.city || '';
-      const state = pickAddr.state || 'QLD';
+      const state = pickAddr.state_code || pickAddr.state || 'QLD';
 
       const phone =
         delivery.customer_phone ||
         delivery.customer_contact_persons?.[0]?.mobile ||
+        delivery.customer_shipping_address?.phone ||
+        delivery.customer_billing_address?.phone ||
         delivery.shipping_address?.phone ||
         delivery.billing_address?.phone ||
         delivery.contactpersons?.[0]?.mobile ||
