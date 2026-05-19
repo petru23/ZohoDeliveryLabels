@@ -643,11 +643,19 @@ class DeliveryLabelGenerator {
 
     // Build label content - compact format
     const labelContent = [];
-    
+
+    // Invoice number (top, very small font)
+    if (delivery.invoice_number) {
+      labelContent.push({
+        text: `#${delivery.invoice_number}\n`,
+        font: { size: 6, name: 'Arial' }
+      });
+    }
+
     // Customer name (bold, size 10)
-    labelContent.push({ 
-      text: customerName + '\n', 
-      font: { bold: true, size: 10, name: 'Arial' } 
+    labelContent.push({
+      text: customerName + '\n',
+      font: { bold: true, size: 10, name: 'Arial' }
     });
     
     // Address (size 8)
