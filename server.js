@@ -400,6 +400,19 @@ const isFridgeItem = (item) => {
   return FRIDGE_RE.test(text) || LITRES_RE.test(text);
 };
 
+// SOLD tags should only be printed for actual appliances — never for
+// services, fees, removals, or marketing fluff. We use a positive signal
+// approach: an item must match at least one appliance hint (brand, type,
+// or capacity unit) to qualify. This is safer than blacklisting because
+// new fee/service line items can be added in Zoho without us missing them.
+const APPLIANCE_BRAND_RE = /\b(fisher\s*&?\s*paykel|f&p|bosch|haier|tcl|westinghouse|aeg|hisense|samsung|\blg\b|miele|smeg|electrolux|whirlpool|beko|simpson|technika|dishlex|ariston|blanco|ilve|chef|esatto|panasonic|sharp|kelvinator|midea)\b/i;
+const APPLIANCE_TYPE_RE = /\b(fridge|freezer|refrigerator|washer|washing\s+machine|dryer|dishwasher|oven|stove|cooktop|rangehood|range\s*hood|microwave|range|hob|wine\s*cooler|front\s*loader|top\s*loader|heat\s*pump)\b/i;
+const CAPACITY_RE = /\b\d+(?:\.\d+)?\s*(kg|L(?:itres?)?)\b/i;
+const isApplianceItem = (item) => {
+  const text = `${item.name || ''} ${item.description || ''}`;
+  return APPLIANCE_BRAND_RE.test(text) || APPLIANCE_TYPE_RE.test(text) || CAPACITY_RE.test(text);
+};
+
 // ============================================================================
 // EXCEL LABEL GENERATOR
 // ============================================================================
@@ -1356,8 +1369,9 @@ app.get('/sold-tag', async (req, res) => {
     const stairsAccess = getCustomField('stairs');
     const onlineOrder = getCustomField('online') || getCustomField('shopify') || '';
     
-    // Build one SOLD tag per physical item. Skip payment fees and
-    // services (install/removal aren't things you stick a tag on).
+    // Build one SOLD tag per physical appliance. Anything that isn't a real
+    // appliance (services, fees, removals, marketing) is skipped so the
+    // staff never accidentally tag a "Card Fee" or "Removal" line.
     // The fridge warning is decided per-item, so a mixed order with a
     // fridge and a washer prints one fridge tag (with warning) and one
     // normal tag (without).
@@ -1368,6 +1382,9 @@ app.get('/sold-tag', async (req, res) => {
       const description = (item.description || '').trim();
       if ((name && isPaymentLine(name)) || (description && isPaymentLine(description))) continue;
       if (isServiceLine(name) || isServiceLine(description)) continue;
+      // Positive appliance check — fees, deposits, gift cards, etc. that
+      // sneak past the blacklists get filtered out here.
+      if (!isApplianceItem(item)) continue;
 
       const displayName = compactBrand(name || description.split('\n')[0]);
       if (!displayName) continue;
@@ -1378,11 +1395,18 @@ app.get('/sold-tag', async (req, res) => {
         tagItems.push({ isFridge: fridge, displayName });
       }
     }
-    // Defensive fallback: if we couldn't identify any physical item, still
-    // print one blank tag so the user gets something rather than nothing.
+    // Defensive fallback: if we couldn't identify any physical appliance,
+    // still print one blank tag so the user gets something rather than nothing.
     if (tagItems.length === 0) {
       tagItems.push({ isFridge: false, displayName: '' });
     }
+
+    // Outstanding balance — shown under the invoice number so staff know
+    // at a glance if the customer still owes money on delivery.
+    const balanceAmount = Number(invoice.balance ?? 0);
+    const currencySymbol = invoice.currency_symbol || '$';
+    const balanceText = `${currencySymbol}${balanceAmount.toFixed(2)}`;
+    const balanceUnpaid = balanceAmount > 0;
     
     // Generate HTML page (print-ready)
     const html = `
@@ -1425,14 +1449,32 @@ app.get('/sold-tag', async (req, res) => {
             break-inside: avoid;
           }
 
-          .invoice-number {
+          .invoice-meta {
             position: absolute;
             top: 8mm;
             right: 10mm;
+            text-align: right;
+          }
+
+          .invoice-number {
             font-size: 16pt;
             font-weight: bold;
             color: #1a202c;
             letter-spacing: 1px;
+          }
+
+          .invoice-balance {
+            margin-top: 2mm;
+            font-size: 14pt;
+            font-weight: bold;
+          }
+
+          .invoice-balance.unpaid {
+            color: #c53030;
+          }
+
+          .invoice-balance.paid {
+            color: #2f855a;
           }
 
           .tag:last-of-type {
@@ -1605,7 +1647,12 @@ app.get('/sold-tag', async (req, res) => {
         
         ${tagItems.map(t => `
         <div class="tag">
-          <div class="invoice-number">#${invoice.invoice_number || ''}</div>
+          <div class="invoice-meta">
+            <div class="invoice-number">#${invoice.invoice_number || ''}</div>
+            <div class="invoice-balance ${balanceUnpaid ? 'unpaid' : 'paid'}">
+              ${balanceUnpaid ? `Balance: ${balanceText}` : `Paid (${balanceText})`}
+            </div>
+          </div>
           <div class="tag-header">
             <div class="take-photo">Take Photo</div>
             ${t.displayName ? `<div class="item-name">${t.displayName}</div>` : ''}
