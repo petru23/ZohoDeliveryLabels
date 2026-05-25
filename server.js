@@ -413,6 +413,19 @@ const isApplianceItem = (item) => {
   return APPLIANCE_BRAND_RE.test(text) || APPLIANCE_TYPE_RE.test(text) || CAPACITY_RE.test(text);
 };
 
+// Outstanding balance display for labels and courier export.
+// Card surcharge is 1.9%, so the driver should collect more on card than
+// on cash. Returns null when nothing is owed.
+const CARD_SURCHARGE_RATE = 0.019;
+function formatBalanceLine(invoice) {
+  const balance = Number(invoice?.balance ?? 0);
+  if (!balance || balance <= 0) return null;
+  const symbol = invoice.currency_symbol || '$';
+  const cash = balance.toFixed(2);
+  const card = (balance * (1 + CARD_SURCHARGE_RATE)).toFixed(2);
+  return `${symbol}${cash} (cash) or ${symbol}${card} (1.9% Card)`;
+}
+
 // ============================================================================
 // EXCEL LABEL GENERATOR
 // ============================================================================
@@ -698,9 +711,19 @@ class DeliveryLabelGenerator {
     
     // Services/Installation info (bold, size 7)
     if (services.length > 0) {
-      labelContent.push({ 
-        text: '\n' + services.join(', '), 
-        font: { bold: true, size: 7, name: 'Arial' } 
+      labelContent.push({
+        text: '\n' + services.join(', '),
+        font: { bold: true, size: 7, name: 'Arial' }
+      });
+    }
+
+    // Outstanding balance — bold red so it's the first thing the driver
+    // notices. Format: "$X.XX (cash) or $Y.YY (1.9% Card)"
+    const balanceLine = formatBalanceLine(delivery);
+    if (balanceLine) {
+      labelContent.push({
+        text: `\nBalance: ${balanceLine}`,
+        font: { bold: true, size: 8, name: 'Arial', color: { argb: 'FFC53030' } }
       });
     }
 
@@ -840,7 +863,13 @@ class DeliveryCompanyExporter {
         }
         if (productLines.length > 0) noteParts.push(productLines.join(' '));
       }
-      const note = noteParts.join(' + ');
+      let note = noteParts.join(' + ');
+      const balanceLine = formatBalanceLine(delivery);
+      if (balanceLine) {
+        note = note
+          ? `${note}\nBalance: ${balanceLine}`
+          : `Balance: ${balanceLine}`;
+      }
 
       const row = worksheet.addRow([
         suburb,         // A: Name (suburb)
