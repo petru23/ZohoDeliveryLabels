@@ -467,13 +467,13 @@ class DeliveryLabelGenerator {
     worksheet.getRow(1).height = 5;
 
     // Set column widths:
-    // Col 1: left margin (width 1)
+    // Col 1: left margin (width 1.7)
     // Col 2: first label (width 48)
-    // Col 3: middle margin (width 1)
+    // Col 3: middle margin (width 1.7)
     // Col 4: second label (width 48)
-    worksheet.getColumn(1).width = 1;
+    worksheet.getColumn(1).width = 1.7;
     worksheet.getColumn(2).width = this.labelColumnWidth;
-    worksheet.getColumn(3).width = 1;
+    worksheet.getColumn(3).width = 1.7;
     worksheet.getColumn(4).width = this.labelColumnWidth;
 
     let currentRow = 2;  // Start at row 2 (after top margin)
