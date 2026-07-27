@@ -335,18 +335,15 @@ class ZohoBooksAPI {
     }
   }
 
-  // Get the TBD backlog: Delivery/Pickup orders whose date is not yet known,
-  // so staff can follow up and assign a real date.
+  // Get the TBD backlog: orders whose date is not yet known, so staff can
+  // follow up and assign a real date. A TBD order may have BOTH the date and
+  // the Delivery/Pickup dropdown left blank, so we key off the TBD flag alone
+  // — never require a date or a dropdown value, or the order would be lost.
   async getTBDDeliveries() {
     try {
       const allInvoices = await this.fetchAllInvoices();
 
-      const tbd = allInvoices.filter(invoice => {
-        if (!ZohoBooksAPI.isTBD(invoice)) return false;
-        // Only orders that are actually a delivery or pickup
-        const type = (invoice.cf_delivery_pick_up_1 || '').toLowerCase();
-        return type === 'delivery' || type === 'pickup' || type === 'pick up';
-      });
+      const tbd = allInvoices.filter(invoice => ZohoBooksAPI.isTBD(invoice));
 
       console.log(`✓ Found ${tbd.length} TBD orders`);
       return tbd;
@@ -1076,7 +1073,12 @@ app.get('/api/tbd-deliveries', async (req, res) => {
       invoice_number: inv.invoice_number,
       customer_name: inv.customer_name,
       phone: inv.phone || inv.mobile || inv.customer_phone || '',
-      type: (inv.cf_delivery_pick_up_1 || '').toLowerCase().includes('pick') ? 'Pickup' : 'Delivery',
+      type: (() => {
+        const t = (inv.cf_delivery_pick_up_1 || '').toLowerCase();
+        if (t.includes('pick')) return 'Pickup';
+        if (t.includes('deliver')) return 'Delivery';
+        return 'Unspecified';
+      })(),
       date: inv.date,
       balance: Number(inv.balance ?? 0),
       total: Number(inv.total ?? 0),
