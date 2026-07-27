@@ -366,6 +366,16 @@
         <div class="spinner" id="courierSpinner"></div>
       </button>
 
+      <button class="btn" id="tbdBtn" onclick="loadTBD()" style="margin-top: 12px; background: #dd6b20;">
+        <span id="tbdBtnText">Show TBD Backlog</span>
+        <div class="spinner" id="tbdSpinner"></div>
+      </button>
+
+      <div class="files-list" id="tbdList" style="display: none;">
+        <h2>TBD Backlog — needs a date <span id="tbdCount"></span></h2>
+        <div id="tbdContainer"></div>
+      </div>
+
       <div class="files-list" id="filesList" style="display: none;">
         <h2>Recent Files</h2>
         <div id="filesContainer"></div>
@@ -605,6 +615,50 @@
         }
       } catch (error) {
         console.error('Failed to load files:', error);
+      }
+    }
+
+    async function loadTBD() {
+      const btn = document.getElementById('tbdBtn');
+      const btnText = document.getElementById('tbdBtnText');
+      const spinner = document.getElementById('tbdSpinner');
+      btn.disabled = true;
+      spinner.style.display = 'inline-block';
+      btnText.textContent = 'Loading…';
+
+      try {
+        const response = await fetch('/api/tbd-deliveries');
+        const data = await response.json();
+
+        if (!data.success) throw new Error(data.error || 'Failed to load TBD backlog');
+
+        const container = document.getElementById('tbdContainer');
+        document.getElementById('tbdCount').textContent = `(${data.count})`;
+
+        if (data.count === 0) {
+          container.innerHTML = '<div class="file-item"><span class="file-name">No TBD orders 🎉</span></div>';
+        } else {
+          container.innerHTML = data.orders.map(o => `
+            <div class="file-item">
+              <span class="file-name">
+                #${o.invoice_number} — ${o.customer_name || 'Unknown'}
+                <small style="color:#718096;">
+                  ${o.type}${o.phone ? ' • ' + o.phone : ''}${o.balance > 0 ? ' • Balance $' + o.balance.toFixed(2) : ''}
+                </small>
+              </span>
+              <a href="${o.sold_tag_url}" target="_blank" class="download-link">SOLD Tag</a>
+            </div>
+          `).join('');
+        }
+
+        document.getElementById('tbdList').style.display = 'block';
+      } catch (error) {
+        console.error('Failed to load TBD backlog:', error);
+        alert('Failed to load TBD backlog: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+        btnText.textContent = 'Refresh TBD Backlog';
       }
     }
 

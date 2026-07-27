@@ -242,45 +242,81 @@ class ZohoBooksAPI {
     return this.getDeliveriesForDate(format(new Date(), 'yyyy-MM-dd'));
   }
 
-  // Get deliveries for a specific date
-  async getDeliveriesForDate(targetDate) {
-    try {
-      // Zoho Billing API call - get all invoices with custom fields (sorted by date)
+  // Fetch EVERY invoice, walking all pages.
+  // IMPORTANT: the invoice list is paginated by INVOICE date, not delivery date.
+  // A sale made weeks ago with a delivery scheduled far in the future can sit well
+  // past page 1, so we must walk every page or those deliveries silently vanish.
+  async fetchAllInvoices() {
+    const allInvoices = [];
+    let page = 1;
+    let hasMore = true;
+    const MAX_PAGES = 100; // safety valve (100 * 200 = 20k invoices)
+
+    while (hasMore && page <= MAX_PAGES) {
       const response = await axios.get(`${this.baseUrl}/invoices`, {
         headers: await this.getHeaders(),
         params: {
           organization_id: this.organizationId,
           sort_column: 'date',      // IMPORTANT: Sorting by date ensures custom fields are returned
           sort_order: 'D',            // Descending order (most recent first)
-          page: 1,
-          per_page: 100
+          page,
+          per_page: 200               // Zoho max page size
         }
       });
 
+      allInvoices.push(...(response.data.invoices || []));
+
+      const pageContext = response.data.page_context || {};
+      hasMore = pageContext.has_more_page === true;
+      page += 1;
+    }
+
+    return allInvoices;
+  }
+
+  // A TBD order is a Delivery/Pickup whose date isn't known yet. Staff flag it with
+  // the "TBD" toggle in Zoho (cf_tbd checkbox) or by typing TBD in the date field.
+  // The Delivery/Pickup dropdown is left as-is.
+  static isTBD(invoice) {
+    const flag = String(invoice.cf_tbd ?? '').toLowerCase();
+    if (flag === 'true' || flag === 'yes' || flag === '1') return true;
+
+    const dateStr = String(invoice.cf_delivery_date_unformatted || invoice.cf_delivery_date || '');
+    return dateStr.trim().toLowerCase() === 'tbd';
+  }
+
+  // Normalize an invoice's delivery date to YYYY-MM-DD, or null if unset/TBD/unparseable.
+  static parseDeliveryDate(invoice) {
+    const dateStr = invoice.cf_delivery_date_unformatted || invoice.cf_delivery_date;
+    if (!dateStr) return null;
+
+    if (dateStr.includes('-')) {
+      // ISO format: YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss
+      return dateStr.split('T')[0];
+    } else if (dateStr.includes('/')) {
+      // DD/MM/YYYY format - convert to YYYY-MM-DD
+      const [day, month, year] = dateStr.split('/');
+      return `${year}-${month}-${day}`;
+    }
+    return null;
+  }
+
+  // Get deliveries for a specific date
+  async getDeliveriesForDate(targetDate) {
+    try {
+      const allInvoices = await this.fetchAllInvoices();
+
       // Filter client-side for target date's deliveries
-      const deliveries = (response.data.invoices || []).filter(invoice => {
+      const deliveries = allInvoices.filter(invoice => {
+        // TBD orders have no scheduled date yet — never include them in a dated run
+        if (ZohoBooksAPI.isTBD(invoice)) return false;
+
         // Check if this invoice has a delivery date
         if (!invoice.cf_delivery_date && !invoice.cf_delivery_date_unformatted) {
           return false;
         }
 
-        // Parse the delivery date (could be formatted as "20/03/2026" or "2026-03-20")
-        let deliveryDate = null;
-        const dateStr = invoice.cf_delivery_date_unformatted || invoice.cf_delivery_date;
-        
-        if (dateStr) {
-          // Try to parse both formats
-          if (dateStr.includes('-')) {
-            // ISO format: YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss
-            deliveryDate = dateStr.split('T')[0];
-          } else if (dateStr.includes('/')) {
-            // DD/MM/YYYY format - convert to YYYY-MM-DD
-            const [day, month, year] = dateStr.split('/');
-            deliveryDate = `${year}-${month}-${day}`;
-          }
-        }
-
-        if (deliveryDate !== targetDate) {
+        if (ZohoBooksAPI.parseDeliveryDate(invoice) !== targetDate) {
           return false;
         }
 
@@ -293,6 +329,27 @@ class ZohoBooksAPI {
 
       console.log(`✓ Found ${deliveries.length} deliveries for ${targetDate}`);
       return deliveries;
+    } catch (error) {
+      console.error('Zoho API Error:', error.response?.data || error.message);
+      throw new Error('Failed to fetch invoices from Zoho Books');
+    }
+  }
+
+  // Get the TBD backlog: Delivery/Pickup orders whose date is not yet known,
+  // so staff can follow up and assign a real date.
+  async getTBDDeliveries() {
+    try {
+      const allInvoices = await this.fetchAllInvoices();
+
+      const tbd = allInvoices.filter(invoice => {
+        if (!ZohoBooksAPI.isTBD(invoice)) return false;
+        // Only orders that are actually a delivery or pickup
+        const type = (invoice.cf_delivery_pick_up_1 || '').toLowerCase();
+        return type === 'delivery' || type === 'pickup' || type === 'pick up';
+      });
+
+      console.log(`✓ Found ${tbd.length} TBD orders`);
+      return tbd;
     } catch (error) {
       console.error('Zoho API Error:', error.response?.data || error.message);
       throw new Error('Failed to fetch invoices from Zoho Books');
@@ -1006,6 +1063,33 @@ app.get('/api/generate-company-export-today', async (req, res) => {
   }
 });
 
+// TBD backlog — orders where the customer doesn't know the date yet, so
+// staff can follow up and assign a real delivery/pickup date. Returns JSON;
+// the dashboard renders it as a to-do list.
+app.get('/api/tbd-deliveries', async (req, res) => {
+  try {
+    const invoices = await zohoBooks.getTBDDeliveries();
+    const enriched = await zohoBooks.enrichDeliveriesWithCustomerData(invoices);
+
+    const orders = enriched.map(inv => ({
+      invoice_id: inv.invoice_id,
+      invoice_number: inv.invoice_number,
+      customer_name: inv.customer_name,
+      phone: inv.phone || inv.mobile || inv.customer_phone || '',
+      type: (inv.cf_delivery_pick_up_1 || '').toLowerCase().includes('pick') ? 'Pickup' : 'Delivery',
+      date: inv.date,
+      balance: Number(inv.balance ?? 0),
+      total: Number(inv.total ?? 0),
+      sold_tag_url: `/sold-tag?invoice=${inv.invoice_id}`,
+    }));
+
+    res.json({ success: true, count: orders.length, orders });
+  } catch (error) {
+    console.error('TBD backlog error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Download generated file
 app.get('/download/:filename', (req, res) => {
   const outputDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, 'output');
@@ -1397,6 +1481,27 @@ app.get('/sold-tag', async (req, res) => {
     const comboUnit = getCustomField('combo');
     const stairsAccess = getCustomField('stairs');
     const onlineOrder = getCustomField('online') || getCustomField('shopify') || '';
+
+    // Delivery vs Pickup — key off the dropdown VALUE (not label) so we don't
+    // collide with the "Delivery Pickup Date" field, which also contains "pick".
+    const deliveryTypeRaw = customFields.find(f => {
+      const label = (f.label || '').toLowerCase();
+      const value = String(f.value || '').toLowerCase().trim();
+      return !label.includes('date') &&
+        (value === 'delivery' || value === 'pickup' || value === 'pick up');
+    })?.value || '';
+    const isPickup = String(deliveryTypeRaw).toLowerCase().replace(/\s/g, '') === 'pickup';
+
+    // TBD — customer doesn't know the date yet. Flagged via a "TBD" toggle
+    // (checkbox custom field) or by typing TBD into the delivery date field.
+    const isTBD = String(deliveryDateField).trim().toLowerCase() === 'tbd' ||
+      getCustomField('tbd') === 'YES';
+    if (isTBD) {
+      deliveryDate = 'TBD';
+    }
+
+    // When it's a pickup, staff don't need an address — print PICK UP instead.
+    const suburbDisplay = isPickup ? 'PICK UP' : suburb;
     
     // Build one SOLD tag per physical appliance. Anything that isn't a real
     // appliance (services, fees, removals, marketing) is skipped so the
@@ -1691,9 +1796,9 @@ app.get('/sold-tag', async (req, res) => {
             <h1>SOLD</h1>
 
             <div class="field">
-              <div class="field-label">SUBURB</div>
+              <div class="field-label">${isPickup ? 'COLLECTION' : 'SUBURB'}</div>
               <div class="field-line">
-                <div class="field-value">${suburb}</div>
+                <div class="field-value">${suburbDisplay}</div>
               </div>
             </div>
 

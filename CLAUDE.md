@@ -30,6 +30,8 @@ This is a single-file Express app (`server.js`, ~1500 lines) plus a static dashb
 3. **`ZohoBooksAPI`** — talks to the Zoho **Billing** API at `https://www.zohoapis.com.au/billing/v1` (AU region; auth host is `accounts.zoho.com.au`). Two non-obvious behaviors:
    - The list endpoint must be called with `sort_column: 'date'` to make custom fields (`cf_delivery_date`, `cf_delivery_pick_up_1`) appear in the response — sorting by other columns silently strips them.
    - Date filtering and delivery/pickup filtering are done **client-side** after fetch (Zoho's server-side filtering on custom fields is not used). Date strings come in as either ISO (`YYYY-MM-DD`) or AU (`DD/MM/YYYY`) and both branches must be handled.
+   - `fetchAllInvoices()` **walks every page** (`per_page: 200`, following `page_context.has_more_page`). This is essential: the list is paginated by *invoice* date, not delivery date, so a sale made weeks ago with a future delivery date sits far past page 1. Fetching only page 1 silently drops those deliveries.
+   - **TBD orders** — `cf_tbd` is a checkbox custom field staff toggle when the customer doesn't know the date yet (or they type `TBD` into the date field). `isTBD()` detects both. TBD orders are excluded from dated label/courier runs and surfaced via the `/api/tbd-deliveries` backlog instead.
    - `enrichDeliveriesWithCustomerData()` falls back to `/contacts/{id}` when an invoice's address or phone is missing — needed because Zoho invoices often don't carry the full address.
 4. **`DeliveryLabelGenerator`** — Avery 5162 layout (99.1mm × 38.1mm, 2 cols × 7 rows = 14 per A4 sheet) built with ExcelJS. The address rendering walks a five-step fallback chain (invoice shipping → invoice billing → customer shipping → customer billing → `attention` field); preserve this order when modifying. Line items are split into `products` vs `services` by regex (`/instal|remov/i`) and filtered against `feeKeywords` and `excludeKeywords` (warranty/damaged/etc.).
 
@@ -38,7 +40,8 @@ This is a single-file Express app (`server.js`, ~1500 lines) plus a static dashb
 - `GET /` — dashboard (`public/index.html`)
 - `GET /api/generate-labels` — tomorrow's deliveries → `.xlsx` download
 - `GET /api/generate-labels-today` — today's deliveries (renames the file post-generation since the generator hardcodes tomorrow's date in the filename)
-- `GET /sold-tag-form` and `GET /sold-tag?invoice=<id>` — separate flow that renders a print-ready A5 HTML "SOLD" tag from an invoice ID. The fridge/freezer warning block is conditionally inserted based on line-item names.
+- `GET /api/tbd-deliveries` — JSON backlog of TBD orders (no date yet) so staff can follow up; rendered by the dashboard's "Show TBD Backlog" button.
+- `GET /sold-tag-form` and `GET /sold-tag?invoice=<id>` — separate flow that renders a print-ready A5 HTML "SOLD" tag from an invoice ID. The fridge/freezer warning block is conditionally inserted based on line-item names. When the order is a pickup the address line prints **PICK UP** instead of the suburb; when TBD the date prints **TBD**.
 - `GET /api/setup/status` and `POST /api/setup/save` — credential setup endpoints used by the dashboard
 - `GET /api/debug/invoices` — raw Zoho invoice dump for troubleshooting
 
